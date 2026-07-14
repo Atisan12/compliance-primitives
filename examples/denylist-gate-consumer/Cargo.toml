@@ -1,0 +1,22 @@
+[package]
+name = "denylist-gate-consumer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Example token contract that calls denylist-gate.check() before transferring."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+denylist-gate = { path = "../../contracts/denylist-gate", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]

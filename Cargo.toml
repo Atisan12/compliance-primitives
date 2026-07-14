@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "contracts/allowlist-token",
+    "contracts/denylist-gate",
+    "contracts/jurisdiction-flag",
+    "examples/denylist-gate-consumer",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/stellar-compliance-kit/compliance-primitives"
+
+[workspace.dependencies]
+soroban-sdk = "27.0.0"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

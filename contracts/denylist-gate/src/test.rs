@@ -1,0 +1,64 @@
+use super::*;
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::Env;
+
+fn setup(env: &Env) -> (Address, Address, DenylistGateClient<'_>) {
+    env.mock_all_auths();
+    let admin = Address::generate(env);
+    let contract_id = env.register(DenylistGate, ());
+    let client = DenylistGateClient::new(env, &contract_id);
+    client.initialize(&admin);
+    (admin, contract_id, client)
+}
+
+#[test]
+fn test_check_defaults_to_clear() {
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_add_and_remove_from_denylist() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+
+    client.remove_from_denylist(&admin, &alice);
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_add_to_denylist_rejects_non_admin() {
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+    let alice = Address::generate(&env);
+
+    let result = client.try_add_to_denylist(&impostor, &alice);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_empty_address_key_is_well_defined() {
+    // An address that has never been touched must read as "clear" (true),
+    // not panic or default to denied. This guards the `unwrap_or(false)`
+    // fallback in `check`.
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+    let never_seen = Address::generate(&env);
+    assert!(client.check(&never_seen));
+}
+
+#[test]
+fn test_double_initialize_fails() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let result = client.try_initialize(&admin);
+    assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}

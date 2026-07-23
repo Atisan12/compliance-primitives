@@ -63,6 +63,24 @@ stellar contract deploy \
   --network testnet
 ```
 
+### Working with a single contract
+
+You don't need to build or test the whole workspace to work on one
+contract. Each crate can be built and tested in isolation with Cargo's
+`-p <crate>` flag, using the crate name from its `Cargo.toml`
+(`allowlist-token`, `denylist-gate`, or `jurisdiction-flag`):
+
+```sh
+# Test just one contract
+cargo test -p allowlist-token
+
+# Lint just one contract
+cargo clippy -p denylist-gate --all-targets -- -D warnings
+
+# Build just one contract to wasm
+cargo build -p jurisdiction-flag --target wasm32v1-none --release
+```
+
 ## Architecture note
 
 These contracts are building blocks, not standalone products. They're

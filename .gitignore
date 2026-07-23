@@ -4,3 +4,17 @@ Cargo.lock.bak
 .DS_Store
 *.wasm.map
 **/test_snapshots/
+
+# Soroban / Stellar CLI local project state (identities, contract aliases,
+# network config) — see `stellar config dir` / `stellar config migrate`.
+.soroban/
+.stellar/
+
+# Wasm build artifacts that land outside /target, e.g. from manual
+# `stellar contract build`/`optimize` invocations or copy/paste workflows.
+*.wasm
+
+# Editor/IDE-specific files
+.vscode/
+.idea/
+*.iml

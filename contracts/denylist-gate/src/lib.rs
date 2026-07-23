@@ -1,9 +1,19 @@
 //! `denylist-gate` is a `#![no_std]` Soroban contract that maintains a
-//! standalone on-chain denylist. Other contracts (tokens, RWA wrappers, etc.)
-//! call `check()` via a cross-contract call before executing a transfer, so
-//! the denylist can be shared and updated independently of the token logic
-//! that consumes it. See `/examples/denylist-gate-consumer` for a worked
-//! example of that composition pattern.
+//! standalone on-chain denylist.
+//!
+//! **Purpose**: give issuers a shared, independently auditable place to
+//! record addresses that must never transact (sanctions hits, fraud, court
+//! orders, etc.), decoupled from any single token contract's own storage.
+//!
+//! **Callers**: an `admin` address manages the denylist through
+//! `add_to_denylist`/`remove_from_denylist`. Other contracts — typically a
+//! token's `transfer` function — call the read-only `check(address)` via a
+//! cross-contract call before moving funds, so the denylist can be updated
+//! without redeploying or touching the token contract itself.
+//!
+//! **Composition**: this contract is meant to be called into, not deployed
+//! as a token itself. See `/examples/denylist-gate-consumer` for a worked
+//! example of a token contract wiring `check()` into its `transfer` path.
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env};

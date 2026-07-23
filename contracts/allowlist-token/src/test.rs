@@ -104,6 +104,25 @@ fn test_add_to_allowlist_rejects_non_admin() {
 }
 
 #[test]
+fn test_non_admin_allowlist_mutations_rejected_end_to_end() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+    let alice = Address::generate(&env);
+
+    let add_result = client.try_add_to_allowlist(&impostor, &alice);
+    assert_eq!(add_result, Err(Ok(Error::NotAuthorized)));
+    assert!(!client.is_allowed(&alice));
+
+    client.add_to_allowlist(&admin, &alice);
+    assert!(client.is_allowed(&alice));
+
+    let remove_result = client.try_remove_from_allowlist(&impostor, &alice);
+    assert_eq!(remove_result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.is_allowed(&alice));
+}
+
+#[test]
 fn test_double_initialize_fails() {
     let env = Env::default();
     let (admin, token_id, _contract_id, client) = setup(&env);

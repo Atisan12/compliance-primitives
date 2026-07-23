@@ -1,7 +1,24 @@
 //! `allowlist-token` is a `#![no_std]` Soroban contract that wraps an existing
 //! SEP-41 token and only permits `transfer` calls between two addresses that
-//! are both present on an on-chain allowlist. It is meant to be composed in
-//! front of an issuer's real token contract, not used as a token itself.
+//! are both present on an on-chain allowlist.
+//!
+//! **Purpose**: give issuers of permissioned tokens (e.g. RWA or regulated
+//! stablecoins) a drop-in gate that blocks transfers to or from addresses
+//! that haven't cleared KYC/onboarding, without modifying the underlying
+//! token contract's own logic.
+//!
+//! **Callers**: an `admin` address manages the allowlist through
+//! `add_to_allowlist`/`remove_from_allowlist`. End users — or the wallets
+//! and apps acting on their behalf — call `transfer` exactly as they would
+//! on a plain SEP-41 token; the allowlist check happens transparently.
+//!
+//! **Composition**: deploy this contract in front of an issuer's real token
+//! and point clients at it instead of the underlying token — cleared
+//! transfers are forwarded on via a cross-contract call. This is the one
+//! primitive in the workspace meant to be deployed standalone rather than
+//! called into by another contract; contrast with `denylist-gate` and
+//! `jurisdiction-flag`, which are designed to be composed into a caller's
+//! own token contract.
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env};

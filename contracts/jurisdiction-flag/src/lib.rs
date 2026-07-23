@@ -1,8 +1,20 @@
 //! `jurisdiction-flag` is a `#![no_std]` Soroban contract that attaches a
 //! jurisdiction code (e.g. an ISO 3166-1 alpha-2 country code) to an
-//! address. Only the configured issuer can set the flag; any contract can
-//! read it, including via the `is_permitted_jurisdiction` helper which is
-//! meant to be called from other contracts' compliance checks.
+//! address.
+//!
+//! **Purpose**: let an issuer record which jurisdiction an address has been
+//! verified in, so other contracts can restrict activity to a permitted set
+//! of jurisdictions without each one reimplementing that bookkeeping.
+//!
+//! **Callers**: only the configured `issuer` address may call
+//! `set_jurisdiction`. Any contract or off-chain client can read a flag via
+//! `get_jurisdiction`, and contracts enforcing a jurisdiction allowlist can
+//! call `is_permitted_jurisdiction(address, allowed_codes)` directly as part
+//! of their own compliance checks.
+//!
+//! **Composition**: designed to be called into from another contract's
+//! `transfer` or similar gating logic — the same pattern `denylist-gate`
+//! uses — rather than deployed standalone.
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec};

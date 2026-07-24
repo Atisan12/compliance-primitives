@@ -1,6 +1,6 @@
 use super::*;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::Env;
+use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::{vec, Env, IntoVal, Map, Symbol, Val};
 
 fn setup(env: &Env) -> (Address, Address, DenylistGateClient<'_>) {
     env.mock_all_auths();
@@ -53,6 +53,30 @@ fn test_empty_address_key_is_well_defined() {
     let (_admin, _contract_id, client) = setup(&env);
     let never_seen = Address::generate(&env);
     assert!(client.check(&never_seen));
+}
+
+#[test]
+fn test_remove_from_denylist_never_added_is_noop() {
+    let env = Env::default();
+    let (admin, contract_id, client) = setup(&env);
+    let never_added = Address::generate(&env);
+
+    assert!(client.check(&never_added));
+
+    client.remove_from_denylist(&admin, &never_added);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "deny_remove"), never_added.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+    assert!(client.check(&never_added));
 }
 
 #[test]

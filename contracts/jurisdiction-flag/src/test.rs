@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Events as _};
 use soroban_sdk::{vec, Env};
 
 fn setup(env: &Env) -> (Address, Address, JurisdictionFlagClient<'_>) {
@@ -82,6 +82,21 @@ fn test_is_permitted_jurisdiction_false_when_no_jurisdiction_and_empty_allowed_l
 
     let allowed: Vec<String> = vec![&env];
     assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
+}
+
+#[test]
+fn test_set_jurisdiction_fails_before_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(JurisdictionFlag, ());
+    let client = JurisdictionFlagClient::new(&env, &contract_id);
+    let issuer = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+
+    let result = client.try_set_jurisdiction(&issuer, &alice, &code);
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+    assert_eq!(env.events().all(), vec![&env]);
 }
 
 #[test]

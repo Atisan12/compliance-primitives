@@ -63,6 +63,13 @@ stellar contract deploy \
   --network testnet
 ```
 
+Alternatively, use [`scripts/deploy-testnet.sh`](./scripts/deploy-testnet.sh) to
+build all contracts and deploy one to testnet in a single step:
+
+```sh
+STELLAR_SOURCE=<your-testnet-identity> ./scripts/deploy-testnet.sh denylist-gate
+```
+
 ### Working with a single contract
 
 You don't need to build or test the whole workspace to work on one

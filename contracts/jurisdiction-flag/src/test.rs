@@ -75,6 +75,16 @@ fn test_is_permitted_jurisdiction_false_with_empty_allowed_list() {
 }
 
 #[test]
+fn test_is_permitted_jurisdiction_false_when_no_jurisdiction_and_empty_allowed_list() {
+    let env = Env::default();
+    let (_issuer, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    let allowed: Vec<String> = vec![&env];
+    assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
+}
+
+#[test]
 fn test_double_initialize_fails() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);

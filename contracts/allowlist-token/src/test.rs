@@ -123,6 +123,40 @@ fn test_non_admin_allowlist_mutations_rejected_end_to_end() {
 }
 
 #[test]
+fn test_remove_from_allowlist_never_added_is_noop() {
+    let env = Env::default();
+    let (admin, _token_id, contract_id, client) = setup(&env);
+    let never_added = Address::generate(&env);
+
+    assert!(!client.is_allowed(&never_added));
+
+    client.remove_from_allowlist(&admin, &never_added);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "allow_remove"), never_added.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+    assert!(!client.is_allowed(&never_added));
+}
+
+#[test]
+fn test_is_allowed_false_before_initialize() {
+    let env = Env::default();
+    let contract_id = env.register(AllowlistToken, ());
+    let client = AllowlistTokenClient::new(&env, &contract_id);
+    let alice = Address::generate(&env);
+
+    assert!(!client.is_allowed(&alice));
+}
+
+#[test]
 fn test_double_initialize_fails() {
     let env = Env::default();
     let (admin, token_id, _contract_id, client) = setup(&env);

@@ -206,3 +206,42 @@ fn test_remove_from_allowlist_emits_allow_remove_event() {
         ]
     );
 }
+
+#[test]
+fn test_add_to_allowlist_twice_is_idempotent() {
+    let env = Env::default();
+    let (admin, _token_id, contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    assert!(!client.is_allowed(&alice));
+
+    // First call to add_to_allowlist
+    client.add_to_allowlist(&admin, &alice);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+    assert!(client.is_allowed(&alice));
+
+    // Second call to add_to_allowlist (idempotent call)
+    client.add_to_allowlist(&admin, &alice);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+    assert!(client.is_allowed(&alice));
+}

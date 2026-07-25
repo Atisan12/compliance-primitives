@@ -65,9 +65,7 @@ impl DenylistGate {
     /// Add `address` to the denylist. Admin-only.
     pub fn add_to_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Denied(address.clone()), &true);
+        env.storage().persistent().set(&DataKey::Denied(address.clone()), &true);
         DenyAdd { address }.publish(&env);
         Ok(())
     }
@@ -75,9 +73,7 @@ impl DenylistGate {
     /// Remove `address` from the denylist. Admin-only.
     pub fn remove_from_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .remove(&DataKey::Denied(address.clone()));
+        env.storage().persistent().remove(&DataKey::Denied(address.clone()));
         DenyRemove { address }.publish(&env);
         Ok(())
     }
@@ -86,20 +82,12 @@ impl DenylistGate {
     /// the denylist. This is the function other contracts should call via
     /// cross-contract invocation before proceeding with a transfer.
     pub fn check(env: Env, address: Address) -> bool {
-        !env
-            .storage()
-            .persistent()
-            .get(&DataKey::Denied(address))
-            .unwrap_or(false)
+        !env.storage().persistent().get(&DataKey::Denied(address)).unwrap_or(false)
     }
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
         admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::NotInitialized)?;
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
         if stored_admin != *admin {
             return Err(Error::NotAuthorized);
         }

@@ -45,11 +45,7 @@ fn test_is_permitted_jurisdiction_true_when_code_in_list() {
     let code = String::from_str(&env, "US");
     client.set_jurisdiction(&issuer, &alice, &code);
 
-    let allowed = vec![
-        &env,
-        String::from_str(&env, "CA"),
-        String::from_str(&env, "US"),
-    ];
+    let allowed = vec![&env, String::from_str(&env, "CA"), String::from_str(&env, "US")];
     assert!(client.is_permitted_jurisdiction(&alice, &allowed));
 }
 

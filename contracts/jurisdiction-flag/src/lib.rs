@@ -59,16 +59,9 @@ impl JurisdictionFlag {
     }
 
     /// Attach jurisdiction `code` to `address`. Issuer-only.
-    pub fn set_jurisdiction(
-        env: Env,
-        issuer: Address,
-        address: Address,
-        code: String,
-    ) -> Result<(), Error> {
+    pub fn set_jurisdiction(env: Env, issuer: Address, address: Address, code: String) -> Result<(), Error> {
         Self::require_issuer(&env, &issuer)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Jurisdiction(address.clone()), &code);
+        env.storage().persistent().set(&DataKey::Jurisdiction(address.clone()), &code);
         JurisdictionSet { address, code }.publish(&env);
         Ok(())
     }
@@ -90,11 +83,7 @@ impl JurisdictionFlag {
 
     fn require_issuer(env: &Env, issuer: &Address) -> Result<(), Error> {
         issuer.require_auth();
-        let stored_issuer: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Issuer)
-            .ok_or(Error::NotInitialized)?;
+        let stored_issuer: Address = env.storage().instance().get(&DataKey::Issuer).ok_or(Error::NotInitialized)?;
         if stored_issuer != *issuer {
             return Err(Error::NotAuthorized);
         }

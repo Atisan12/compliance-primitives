@@ -82,9 +82,7 @@ impl AllowlistToken {
     /// Add `address` to the allowlist. Admin-only.
     pub fn add_to_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Allowed(address.clone()), &true);
+        env.storage().persistent().set(&DataKey::Allowed(address.clone()), &true);
         AllowAdd { address }.publish(&env);
         Ok(())
     }
@@ -92,19 +90,14 @@ impl AllowlistToken {
     /// Remove `address` from the allowlist. Admin-only.
     pub fn remove_from_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .remove(&DataKey::Allowed(address.clone()));
+        env.storage().persistent().remove(&DataKey::Allowed(address.clone()));
         AllowRemove { address }.publish(&env);
         Ok(())
     }
 
     /// Returns true if `address` is currently allowlisted.
     pub fn is_allowed(env: Env, address: Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Allowed(address))
-            .unwrap_or(false)
+        env.storage().persistent().get(&DataKey::Allowed(address)).unwrap_or(false)
     }
 
     /// Transfer `amount` of the underlying token from `from` to `to`.
@@ -124,11 +117,7 @@ impl AllowlistToken {
             return Ok(false);
         }
 
-        let token_address: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Token)
-            .ok_or(Error::NotInitialized)?;
+        let token_address: Address = env.storage().instance().get(&DataKey::Token).ok_or(Error::NotInitialized)?;
         let token_client = token::Client::new(&env, &token_address);
         token_client.transfer(&from, &to, &amount);
         Ok(true)
@@ -136,11 +125,7 @@ impl AllowlistToken {
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
         admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::NotInitialized)?;
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
         if stored_admin != *admin {
             return Err(Error::NotAuthorized);
         }

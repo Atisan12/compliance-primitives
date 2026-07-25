@@ -80,6 +80,11 @@ fn test_transfer_blocked_when_recipient_not_allowlisted() {
             &env,
             (
                 contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
                 (symbol_short!("blocked"), alice.clone(), bob.clone()).into_val(&env),
                 Map::<Symbol, Val>::from_array(
                     &env,
@@ -198,6 +203,11 @@ fn test_remove_from_allowlist_emits_allow_remove_event() {
         env.events().all(),
         vec![
             &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
             (
                 contract_id.clone(),
                 (Symbol::new(&env, "allow_remove"), alice.clone()).into_val(&env),

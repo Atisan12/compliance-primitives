@@ -16,7 +16,9 @@
 //! example of a token contract wiring `check()` into its `transfer` path.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env,
+};
 
 #[contracttype]
 #[derive(Clone)]
@@ -86,8 +88,7 @@ impl DenylistGate {
     /// the denylist. This is the function other contracts should call via
     /// cross-contract invocation before proceeding with a transfer.
     pub fn check(env: Env, address: Address) -> bool {
-        !env
-            .storage()
+        !env.storage()
             .persistent()
             .get(&DataKey::Denied(address))
             .unwrap_or(false)

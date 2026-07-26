@@ -13,7 +13,9 @@
 //! a contract you don't own the source of in the same build.
 #![no_std]
 
-use soroban_sdk::{contract, contractclient, contracterror, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{
+    contract, contractclient, contracterror, contractimpl, contracttype, Address, Env,
+};
 
 #[contractclient(name = "GateClient")]
 pub trait DenylistGateInterface {

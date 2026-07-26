@@ -63,6 +63,24 @@ fn test_transfer_forwards_to_underlying_token_when_both_allowlisted() {
 }
 
 #[test]
+fn test_transfer_with_zero_amount_forwards_to_underlying_token() {
+    let env = Env::default();
+    let (admin, token_id, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    client.add_to_allowlist(&admin, &alice);
+    client.add_to_allowlist(&admin, &bob);
+
+    let ok = client.transfer(&alice, &bob, &0);
+    assert!(ok);
+
+    let token_client = MockTokenClient::new(&env, &token_id);
+    let last = token_client.last_transfer().unwrap();
+    assert_eq!(last, (alice, bob, 0));
+}
+
+#[test]
 fn test_transfer_blocked_when_recipient_not_allowlisted() {
     let env = Env::default();
     let (admin, _token_id, contract_id, client) = setup(&env);

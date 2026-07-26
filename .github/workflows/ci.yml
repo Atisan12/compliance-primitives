@@ -21,6 +21,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace --verbose
+      - name: Run doc tests
+        run: cargo test --workspace --doc --verbose
 
   clippy:
     name: cargo clippy

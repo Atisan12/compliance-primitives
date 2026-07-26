@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Stellar Compliance Kit contributors
+// SPDX-License-Identifier: MIT
+// See the LICENSE file in the repository root for the full license text.
+
 //! `jurisdiction-flag` is a `#![no_std]` Soroban contract that attaches a
 //! jurisdiction code (e.g. an ISO 3166-1 alpha-2 country code) to an
 //! address.
@@ -17,7 +21,9 @@
 //! uses — rather than deployed standalone.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec,
+};
 
 #[contracttype]
 #[derive(Clone)]
@@ -75,13 +81,19 @@ impl JurisdictionFlag {
 
     /// Returns the jurisdiction code attached to `address`, if any.
     pub fn get_jurisdiction(env: Env, address: Address) -> Option<String> {
-        env.storage().persistent().get(&DataKey::Jurisdiction(address))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Jurisdiction(address))
     }
 
     /// Returns `true` if `address` has a jurisdiction code set AND that code
     /// appears in `allowed_codes`. Meant to be called by other contracts
     /// that want to restrict activity to a set of permitted jurisdictions.
-    pub fn is_permitted_jurisdiction(env: Env, address: Address, allowed_codes: Vec<String>) -> bool {
+    pub fn is_permitted_jurisdiction(
+        env: Env,
+        address: Address,
+        allowed_codes: Vec<String>,
+    ) -> bool {
         match Self::get_jurisdiction(env, address) {
             Some(code) => allowed_codes.iter().any(|c| c == code),
             None => false,

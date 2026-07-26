@@ -63,6 +63,10 @@ stellar contract deploy \
   --network testnet
 ```
 
+See [`examples/testnet.env.example`](./examples/testnet.env.example) for an
+example config covering the identity/network setup needed for the deploy +
+invoke round trip above.
+
 Alternatively, use [`scripts/deploy-testnet.sh`](./scripts/deploy-testnet.sh) to
 build all contracts and deploy one to testnet in a single step:
 

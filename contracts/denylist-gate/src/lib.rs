@@ -51,8 +51,17 @@ pub struct DenylistGate;
 
 #[contractimpl]
 impl DenylistGate {
-    /// One-time setup. `admin` is the only address allowed to update the
-    /// denylist afterward.
+    /// One-time setup. Stores `admin` as the only address allowed to update
+    /// the denylist afterward.
+    ///
+    /// # Auth
+    /// Requires authorization from `admin` via `require_auth()`.
+    ///
+    /// # Returns
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    /// - [`Error::AlreadyInitialized`] if `initialize` was already called.
     pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
@@ -62,7 +71,18 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Add `address` to the denylist. Admin-only.
+    /// Add `address` to the denylist and emit a [`DenyAdd`] event.
+    ///
+    /// # Auth
+    /// Admin-only: `admin` must authorize the call and match the stored admin.
+    ///
+    /// # Returns
+    /// `Ok(())` on success. Calling this again for an already-denied address
+    /// is a no-op aside from emitting another [`DenyAdd`] event.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if `initialize` has not been called.
+    /// - [`Error::NotAuthorized`] if `admin` is not the stored admin.
     pub fn add_to_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
         env.storage()
@@ -72,7 +92,18 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Remove `address` from the denylist. Admin-only.
+    /// Remove `address` from the denylist and emit a [`DenyRemove`] event.
+    ///
+    /// # Auth
+    /// Admin-only: `admin` must authorize the call and match the stored admin.
+    ///
+    /// # Returns
+    /// `Ok(())` on success. Removing an address that was never denied (or
+    /// was already removed) still succeeds and emits [`DenyRemove`].
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if `initialize` has not been called.
+    /// - [`Error::NotAuthorized`] if `admin` is not the stored admin.
     pub fn remove_from_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
         env.storage()
@@ -82,9 +113,13 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Returns `true` if `address` is clear to transact, i.e. it is NOT on
-    /// the denylist. This is the function other contracts should call via
-    /// cross-contract invocation before proceeding with a transfer.
+    /// Returns whether `address` is clear to transact.
+    ///
+    /// Returns `true` when `address` is **not** on the denylist, and `false`
+    /// when it is. Addresses that have never been added (never touched) are
+    /// treated as clear by default — this function returns `true` for them,
+    /// not `false`. No authorization is required; other contracts should call
+    /// this via cross-contract invocation before proceeding with a transfer.
     pub fn check(env: Env, address: Address) -> bool {
         !env
             .storage()

@@ -33,6 +33,19 @@ fn test_add_and_remove_from_denylist() {
 }
 
 #[test]
+fn test_check_true_immediately_after_remove_from_denylist() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+
+    client.remove_from_denylist(&admin, &alice);
+    assert!(client.check(&alice));
+}
+
+#[test]
 fn test_add_to_denylist_rejects_non_admin() {
     let env = Env::default();
     let (_admin, _contract_id, client) = setup(&env);

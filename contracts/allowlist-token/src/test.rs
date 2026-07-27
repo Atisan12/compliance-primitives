@@ -157,6 +157,24 @@ fn test_is_allowed_false_before_initialize() {
 }
 
 #[test]
+fn test_get_admin_returns_initialized_admin() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+
+    assert_eq!(client.get_admin(), admin);
+}
+
+#[test]
+fn test_get_admin_fails_before_initialize() {
+    let env = Env::default();
+    let contract_id = env.register(AllowlistToken, ());
+    let client = AllowlistTokenClient::new(&env, &contract_id);
+
+    let result = client.try_get_admin();
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
+
+#[test]
 fn test_double_initialize_fails() {
     let env = Env::default();
     let (admin, token_id, _contract_id, client) = setup(&env);

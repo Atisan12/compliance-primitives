@@ -21,7 +21,7 @@
 //! own token contract.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env, Vec};
 
 #[contracttype]
 #[derive(Clone)]
@@ -96,6 +96,24 @@ impl AllowlistToken {
             .persistent()
             .remove(&DataKey::Allowed(address.clone()));
         AllowRemove { address }.publish(&env);
+        Ok(())
+    }
+
+    /// Remove many addresses from the allowlist in a single transaction.
+    /// Admin-only; authorizes `admin` once and then removes each address via
+    /// the same logic as `remove_from_allowlist`.
+    pub fn remove_multiple_from_allowlist(
+        env: Env,
+        admin: Address,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        for address in addresses.iter() {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Allowed(address.clone()));
+            AllowRemove { address }.publish(&env);
+        }
         Ok(())
     }
 

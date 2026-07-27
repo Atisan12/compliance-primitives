@@ -78,6 +78,32 @@ impl JurisdictionFlag {
         env.storage().persistent().get(&DataKey::Jurisdiction(address))
     }
 
+    /// Returns the stored issuer address.
+    pub fn get_issuer(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Issuer)
+            .ok_or(Error::NotInitialized)
+    }
+
+    /// Attach jurisdiction codes to many addresses in a single transaction.
+    /// Issuer-only; authorizes `issuer` once and then applies each entry via
+    /// the same logic as `set_jurisdiction`.
+    pub fn set_multiple_jurisdictions(
+        env: Env,
+        issuer: Address,
+        entries: Vec<(Address, String)>,
+    ) -> Result<(), Error> {
+        Self::require_issuer(&env, &issuer)?;
+        for (address, code) in entries.iter() {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Jurisdiction(address.clone()), &code);
+            JurisdictionSet { address, code }.publish(&env);
+        }
+        Ok(())
+    }
+
     /// Returns `true` if `address` has a jurisdiction code set AND that code
     /// appears in `allowed_codes`. Meant to be called by other contracts
     /// that want to restrict activity to a set of permitted jurisdictions.

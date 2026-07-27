@@ -52,9 +52,12 @@ cargo test --workspace
 # Lint
 cargo clippy --workspace --all-targets -- -D warnings
 
-# Build a contract to wasm (requires the wasm32v1-none target:
-# `rustup target add wasm32v1-none`)
+# Build a contract to wasm (the wasm32v1-none target is pinned in
+# rust-toolchain.toml, so rustup installs it automatically)
 stellar contract build
+
+# Equivalent, via the cargo alias in .cargo/config.toml
+cargo build-wasm
 
 # Deploy a built contract to testnet, e.g. denylist-gate
 stellar contract deploy \

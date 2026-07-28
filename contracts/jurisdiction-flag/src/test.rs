@@ -106,3 +106,28 @@ fn test_double_initialize_fails() {
     let result = client.try_initialize(&issuer);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
+
+#[test]
+fn test_get_jurisdiction_or_returns_stored_code_when_set() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    let code = String::from_str(&env, "DE");
+    client.set_jurisdiction(&issuer, &alice, &code);
+
+    let default = String::from_str(&env, "XX");
+    // Should return the real code, not the default.
+    assert_eq!(client.get_jurisdiction_or(&alice, &default), code);
+}
+
+#[test]
+fn test_get_jurisdiction_or_returns_default_when_not_set() {
+    let env = Env::default();
+    let (_issuer, _contract_id, client) = setup(&env);
+    let bob = Address::generate(&env);
+
+    let default = String::from_str(&env, "XX");
+    // No jurisdiction set for bob — should return the caller-supplied default.
+    assert_eq!(client.get_jurisdiction_or(&bob, &default), default);
+}

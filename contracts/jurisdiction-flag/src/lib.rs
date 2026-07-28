@@ -15,6 +15,12 @@
 //! **Composition**: designed to be called into from another contract's
 //! `transfer` or similar gating logic — the same pattern `denylist-gate`
 //! uses — rather than deployed standalone.
+//!
+//! **Pausability**: the issuer may call `pause` to halt all mutating
+//! operations (`set_jurisdiction`). The read-only `get_jurisdiction` and
+//! `is_permitted_jurisdiction` methods are unaffected by pause state. The
+//! shared [`compliance_pausable`] helper crate implements the pause storage
+//! logic; this contract only supplies issuer-gating and event emission.
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec};
@@ -33,6 +39,18 @@ pub struct JurisdictionSet {
     pub code: String,
 }
 
+#[contractevent]
+pub struct Paused {
+    #[topic]
+    pub issuer: Address,
+}
+
+#[contractevent]
+pub struct Unpaused {
+    #[topic]
+    pub issuer: Address,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -40,6 +58,7 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     NotAuthorized = 3,
+    ContractPaused = 4,
 }
 
 #[contract]
@@ -58,13 +77,14 @@ impl JurisdictionFlag {
         Ok(())
     }
 
-    /// Attach jurisdiction `code` to `address`. Issuer-only.
+    /// Attach jurisdiction `code` to `address`. Issuer-only. Blocked while paused.
     pub fn set_jurisdiction(
         env: Env,
         issuer: Address,
         address: Address,
         code: String,
     ) -> Result<(), Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         Self::require_issuer(&env, &issuer)?;
         env.storage()
             .persistent()
@@ -74,6 +94,8 @@ impl JurisdictionFlag {
     }
 
     /// Returns the jurisdiction code attached to `address`, if any.
+    ///
+    /// **Not** affected by pause state — reads always succeed.
     pub fn get_jurisdiction(env: Env, address: Address) -> Option<String> {
         env.storage().persistent().get(&DataKey::Jurisdiction(address))
     }
@@ -81,11 +103,37 @@ impl JurisdictionFlag {
     /// Returns `true` if `address` has a jurisdiction code set AND that code
     /// appears in `allowed_codes`. Meant to be called by other contracts
     /// that want to restrict activity to a set of permitted jurisdictions.
+    ///
+    /// **Not** affected by pause state — reads always succeed.
     pub fn is_permitted_jurisdiction(env: Env, address: Address, allowed_codes: Vec<String>) -> bool {
         match Self::get_jurisdiction(env, address) {
             Some(code) => allowed_codes.iter().any(|c| c == code),
             None => false,
         }
+    }
+
+    /// Pause the contract. Issuer-only.
+    ///
+    /// While paused, `set_jurisdiction` returns `Error::ContractPaused`.
+    /// Read methods continue to work normally.
+    pub fn pause(env: Env, issuer: Address) -> Result<(), Error> {
+        Self::require_issuer(&env, &issuer)?;
+        compliance_pausable::pause(&env);
+        Paused { issuer }.publish(&env);
+        Ok(())
+    }
+
+    /// Unpause the contract. Issuer-only.
+    pub fn unpause(env: Env, issuer: Address) -> Result<(), Error> {
+        Self::require_issuer(&env, &issuer)?;
+        compliance_pausable::unpause(&env);
+        Unpaused { issuer }.publish(&env);
+        Ok(())
+    }
+
+    /// Returns `true` if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        compliance_pausable::is_paused(&env)
     }
 
     fn require_issuer(env: &Env, issuer: &Address) -> Result<(), Error> {

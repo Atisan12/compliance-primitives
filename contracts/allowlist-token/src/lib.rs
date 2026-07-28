@@ -19,6 +19,12 @@
 //! called into by another contract; contrast with `denylist-gate` and
 //! `jurisdiction-flag`, which are designed to be composed into a caller's
 //! own token contract.
+//!
+//! **Pausability**: the admin may call `pause` to halt all mutating
+//! operations (`add_to_allowlist`, `remove_from_allowlist`, `transfer`).
+//! The read-only `is_allowed` method is unaffected by pause state. The
+//! shared [`compliance_pausable`] helper crate implements the pause storage
+//! logic; this contract only supplies admin-gating and event emission.
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env};
@@ -52,6 +58,18 @@ pub struct Blocked {
     pub amount: i128,
 }
 
+#[contractevent]
+pub struct Paused {
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+pub struct Unpaused {
+    #[topic]
+    pub admin: Address,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -59,6 +77,7 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     NotAuthorized = 3,
+    ContractPaused = 4,
 }
 
 #[contract]
@@ -79,8 +98,9 @@ impl AllowlistToken {
         Ok(())
     }
 
-    /// Add `address` to the allowlist. Admin-only.
+    /// Add `address` to the allowlist. Admin-only. Blocked while paused.
     pub fn add_to_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         Self::require_admin(&env, &admin)?;
         env.storage()
             .persistent()
@@ -89,8 +109,9 @@ impl AllowlistToken {
         Ok(())
     }
 
-    /// Remove `address` from the allowlist. Admin-only.
+    /// Remove `address` from the allowlist. Admin-only. Blocked while paused.
     pub fn remove_from_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         Self::require_admin(&env, &admin)?;
         env.storage()
             .persistent()
@@ -100,6 +121,8 @@ impl AllowlistToken {
     }
 
     /// Returns true if `address` is currently allowlisted.
+    ///
+    /// **Not** affected by pause state — reads always succeed.
     pub fn is_allowed(env: Env, address: Address) -> bool {
         env.storage()
             .persistent()
@@ -109,14 +132,18 @@ impl AllowlistToken {
 
     /// Transfer `amount` of the underlying token from `from` to `to`.
     ///
+    /// Blocked while paused — returns `Err(ContractPaused)`.
+    ///
     /// Returns `Ok(false)` without forwarding the transfer if either party is
     /// not allowlisted, and emits a `Blocked` event so the attempt is
     /// auditable off-chain. A Soroban invocation that returns a contract
     /// error rolls back everything it did, including events, so a blocked
     /// attempt is reported as `Ok(false)` rather than an `Err` — that's what
     /// lets the audit event actually land. `Err` is reserved for
-    /// configuration failures (e.g. the contract was never initialized).
+    /// configuration failures (e.g. the contract was never initialized or is
+    /// paused).
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<bool, Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         from.require_auth();
 
         if !Self::is_allowed(env.clone(), from.clone()) || !Self::is_allowed(env.clone(), to.clone()) {
@@ -132,6 +159,31 @@ impl AllowlistToken {
         let token_client = token::Client::new(&env, &token_address);
         token_client.transfer(&from, &to, &amount);
         Ok(true)
+    }
+
+    /// Pause the contract. Admin-only.
+    ///
+    /// While paused, `add_to_allowlist`, `remove_from_allowlist`, and
+    /// `transfer` return `Error::ContractPaused`. `is_allowed` continues
+    /// to work normally.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        compliance_pausable::pause(&env);
+        Paused { admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Unpause the contract. Admin-only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        compliance_pausable::unpause(&env);
+        Unpaused { admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Returns `true` if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        compliance_pausable::is_paused(&env)
     }
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {

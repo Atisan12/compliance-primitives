@@ -13,9 +13,11 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
+compliance-pausable = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+compliance-pausable = { workspace = true, features = ["testutils"] }
 
 [features]
-testutils = ["soroban-sdk/testutils"]
+testutils = ["soroban-sdk/testutils", "compliance-pausable/testutils"]

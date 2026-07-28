@@ -40,6 +40,11 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     NotAuthorized = 3,
+    /// `allowed_codes` was empty. An empty allowlist means nothing can ever
+    /// pass, which is almost certainly a caller configuration mistake rather
+    /// than a legitimate "nothing is permitted" intent. Callers should either
+    /// supply at least one code or omit the jurisdiction check entirely.
+    EmptyAllowedCodes = 4,
 }
 
 #[contract]
@@ -78,14 +83,25 @@ impl JurisdictionFlag {
         env.storage().persistent().get(&DataKey::Jurisdiction(address))
     }
 
-    /// Returns `true` if `address` has a jurisdiction code set AND that code
-    /// appears in `allowed_codes`. Meant to be called by other contracts
-    /// that want to restrict activity to a set of permitted jurisdictions.
-    pub fn is_permitted_jurisdiction(env: Env, address: Address, allowed_codes: Vec<String>) -> bool {
-        match Self::get_jurisdiction(env, address) {
+    /// Returns `Ok(true)` if `address` has a jurisdiction code set AND that
+    /// code appears in `allowed_codes`. Returns `Ok(false)` if the address has
+    /// no code set or its code is not in `allowed_codes`. Returns
+    /// `Err(Error::EmptyAllowedCodes)` when `allowed_codes` is empty, because
+    /// an empty allowlist means nothing can ever pass — that is almost
+    /// certainly a caller configuration mistake rather than a deliberate
+    /// "nothing is permitted" intent.
+    pub fn is_permitted_jurisdiction(
+        env: Env,
+        address: Address,
+        allowed_codes: Vec<String>,
+    ) -> Result<bool, Error> {
+        if allowed_codes.is_empty() {
+            return Err(Error::EmptyAllowedCodes);
+        }
+        Ok(match Self::get_jurisdiction(env, address) {
             Some(code) => allowed_codes.iter().any(|c| c == code),
             None => false,
-        }
+        })
     }
 
     fn require_issuer(env: &Env, issuer: &Address) -> Result<(), Error> {

@@ -16,7 +16,7 @@
 //! example of a token contract wiring `check()` into its `transfer` path.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec};
 
 #[contracttype]
 #[derive(Clone)]
@@ -69,6 +69,25 @@ impl DenylistGate {
             .persistent()
             .set(&DataKey::Denied(address.clone()), &true);
         DenyAdd { address }.publish(&env);
+        Ok(())
+    }
+
+    /// Add every address in `addresses` to the denylist in a single call.
+    /// Admin is checked once; one `DenyAdd` event is emitted per address.
+    /// Useful for bulk sanctions-list syncs where issuing one transaction per
+    /// address would be impractical.
+    pub fn add_multiple_to_denylist(
+        env: Env,
+        admin: Address,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        for address in addresses.iter() {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Denied(address.clone()), &true);
+            DenyAdd { address }.publish(&env);
+        }
         Ok(())
     }
 

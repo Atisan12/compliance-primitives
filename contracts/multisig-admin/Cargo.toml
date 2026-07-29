@@ -1,0 +1,22 @@
+[package]
+name = "multisig-admin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "M-of-N multisig contract usable as the admin address for any compliance primitive."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+denylist-gate = { path = "../denylist-gate", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]

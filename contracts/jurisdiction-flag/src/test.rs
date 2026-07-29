@@ -11,6 +11,8 @@ fn setup(env: &Env) -> (Address, Address, JurisdictionFlagClient<'_>) {
     (issuer, contract_id, client)
 }
 
+// ── existing tests (unchanged) ────────────────────────────────────────────────
+
 #[test]
 fn test_set_and_get_jurisdiction() {
     let env = Env::default();
@@ -105,4 +107,67 @@ fn test_double_initialize_fails() {
     let (issuer, _contract_id, client) = setup(&env);
     let result = client.try_initialize(&issuer);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}
+
+// ── new time-bound tests ──────────────────────────────────────────────────────
+
+/// A flag set with `set_jurisdiction_until` is readable and permitted before
+/// its `valid_until` ledger sequence is reached.
+#[test]
+fn test_set_jurisdiction_until_valid_before_expiry() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "DE");
+
+    // Set ledger sequence well before the expiry.
+    env.ledger().with_mut(|li| li.sequence_number = 100);
+    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
+
+    // Still before expiry — flag should be present and permitted.
+    env.ledger().with_mut(|li| li.sequence_number = 150);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code.clone()));
+
+    let allowed = vec![&env, String::from_str(&env, "DE")];
+    assert!(client.is_permitted_jurisdiction(&alice, &allowed));
+}
+
+/// A flag set with `set_jurisdiction_until` is treated as unset once the
+/// current ledger sequence strictly exceeds `valid_until`.
+#[test]
+fn test_set_jurisdiction_until_expired_after_expiry() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "FR");
+
+    env.ledger().with_mut(|li| li.sequence_number = 100);
+    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
+
+    // Past expiry — flag should be treated as unset.
+    env.ledger().with_mut(|li| li.sequence_number = 201);
+    assert_eq!(client.get_jurisdiction(&alice), None);
+
+    let allowed = vec![&env, String::from_str(&env, "FR")];
+    assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
+}
+
+/// At the exact `valid_until` ledger sequence the flag is still valid
+/// (`valid_until` is inclusive).
+#[test]
+fn test_set_jurisdiction_until_boundary_ledger() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "JP");
+
+    env.ledger().with_mut(|li| li.sequence_number = 100);
+    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
+
+    // Exactly at valid_until — flag should still be valid.
+    env.ledger().with_mut(|li| li.sequence_number = 200);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code.clone()));
+
+    let allowed = vec![&env, String::from_str(&env, "JP")];
+    assert!(client.is_permitted_jurisdiction(&alice, &allowed));
 }

@@ -86,3 +86,125 @@ fn test_double_initialize_fails() {
     let result = client.try_initialize(&admin);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
+
+#[test]
+fn test_pause_blocks_add_and_remove() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    client.pause(&admin);
+    assert_eq!(
+        client.try_add_to_denylist(&admin, &alice),
+        Err(Ok(Error::Paused))
+    );
+    assert!(client.check(&alice));
+
+    client.unpause(&admin);
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+
+    client.pause(&admin);
+    assert_eq!(
+        client.try_remove_from_denylist(&admin, &alice),
+        Err(Ok(Error::Paused))
+    );
+    assert!(!client.check(&alice));
+}
+
+#[test]
+fn test_unpause_restores_add_and_remove() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    client.pause(&admin);
+    client.unpause(&admin);
+
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+
+    client.remove_from_denylist(&admin, &alice);
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_check_unaffected_by_pause_state() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+    assert!(client.check(&bob));
+
+    client.pause(&admin);
+    assert!(!client.check(&alice));
+    assert!(client.check(&bob));
+
+    client.unpause(&admin);
+    assert!(!client.check(&alice));
+    assert!(client.check(&bob));
+}
+
+#[test]
+fn test_non_admin_cannot_pause_or_unpause() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+
+    assert_eq!(client.try_pause(&impostor), Err(Ok(Error::NotAuthorized)));
+
+    client.pause(&admin);
+    assert_eq!(client.try_unpause(&impostor), Err(Ok(Error::NotAuthorized)));
+}
+
+#[test]
+fn test_pause_emits_event() {
+    let env = Env::default();
+    let (admin, contract_id, client) = setup(&env);
+
+    client.pause(&admin);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id,
+                (Symbol::new(&env, "gate_paused"),).into_val(&env),
+                Map::<Symbol, Val>::from_array(
+                    &env,
+                    [(Symbol::new(&env, "paused"), true.into_val(&env))],
+                )
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn test_unpause_emits_event() {
+    let env = Env::default();
+    let (admin, contract_id, client) = setup(&env);
+
+    client.pause(&admin);
+    client.unpause(&admin);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id,
+                (Symbol::new(&env, "gate_unpaused"),).into_val(&env),
+                Map::<Symbol, Val>::from_array(
+                    &env,
+                    [(Symbol::new(&env, "paused"), false.into_val(&env))],
+                )
+                .into_val(&env),
+            ),
+        ]
+    );
+}

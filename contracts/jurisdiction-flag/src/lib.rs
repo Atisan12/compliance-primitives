@@ -19,6 +19,12 @@
 
 use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec};
 
+/// Extend persistent jurisdiction entries when TTL drops below this many ledgers.
+const TTL_THRESHOLD: u32 = 1_000;
+/// Target TTL (in ledgers) after extension. Matches Stellar archival guidance
+/// for long-lived compliance flags that must remain queryable.
+const TTL_EXTEND_TO: u32 = 5_000;
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -66,16 +72,21 @@ impl JurisdictionFlag {
         code: String,
     ) -> Result<(), Error> {
         Self::require_issuer(&env, &issuer)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Jurisdiction(address.clone()), &code);
+        let key = DataKey::Jurisdiction(address.clone());
+        env.storage().persistent().set(&key, &code);
+        Self::extend_jurisdiction_ttl(&env, &key);
         JurisdictionSet { address, code }.publish(&env);
         Ok(())
     }
 
     /// Returns the jurisdiction code attached to `address`, if any.
     pub fn get_jurisdiction(env: Env, address: Address) -> Option<String> {
-        env.storage().persistent().get(&DataKey::Jurisdiction(address))
+        let key = DataKey::Jurisdiction(address);
+        let code = env.storage().persistent().get(&key);
+        if code.is_some() {
+            Self::extend_jurisdiction_ttl(&env, &key);
+        }
+        code
     }
 
     /// Returns `true` if `address` has a jurisdiction code set AND that code
@@ -99,6 +110,12 @@ impl JurisdictionFlag {
             return Err(Error::NotAuthorized);
         }
         Ok(())
+    }
+
+    fn extend_jurisdiction_ttl(env: &Env, key: &DataKey) {
+        env.storage()
+            .persistent()
+            .extend_ttl(key, TTL_THRESHOLD, TTL_EXTEND_TO);
     }
 }
 

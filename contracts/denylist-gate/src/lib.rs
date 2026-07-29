@@ -22,6 +22,7 @@ use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contract
 #[derive(Clone)]
 enum DataKey {
     Admin,
+    Paused,
     Denied(Address),
 }
 
@@ -37,6 +38,16 @@ pub struct DenyRemove {
     pub address: Address,
 }
 
+#[contractevent]
+pub struct GatePaused {
+    paused: bool,
+}
+
+#[contractevent]
+pub struct GateUnpaused {
+    paused: bool,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -44,6 +55,7 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     NotAuthorized = 3,
+    Paused = 4,
 }
 
 #[contract]
@@ -62,8 +74,26 @@ impl DenylistGate {
         Ok(())
     }
 
+    /// Pause admin mutations (`add_to_denylist` / `remove_from_denylist`).
+    /// `check()` continues to work while paused. Admin-only.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &true);
+        GatePaused { paused: true }.publish(&env);
+        Ok(())
+    }
+
+    /// Resume admin mutations after a `pause`. Admin-only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &false);
+        GateUnpaused { paused: false }.publish(&env);
+        Ok(())
+    }
+
     /// Add `address` to the denylist. Admin-only.
     pub fn add_to_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        Self::reject_if_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         env.storage()
             .persistent()
@@ -74,6 +104,7 @@ impl DenylistGate {
 
     /// Remove `address` from the denylist. Admin-only.
     pub fn remove_from_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        Self::reject_if_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         env.storage()
             .persistent()
@@ -93,6 +124,18 @@ impl DenylistGate {
             .unwrap_or(false)
     }
 
+    fn reject_if_paused(env: &Env) -> Result<(), Error> {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            return Err(Error::Paused);
+        }
+        Ok(())
+    }
+
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
         admin.require_auth();
         let stored_admin: Address = env
@@ -109,3 +152,6 @@ impl DenylistGate {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod fuzz_test;

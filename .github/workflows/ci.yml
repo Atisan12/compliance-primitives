@@ -36,6 +36,18 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  budget-regression:
+    name: budget regression checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Run budget regression tests
+        run: cargo test --workspace budget_regression -- --nocapture
+
   wasm-build:
     name: wasm32v1-none build
     runs-on: ubuntu-latest

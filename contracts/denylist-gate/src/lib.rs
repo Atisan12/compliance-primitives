@@ -16,7 +16,11 @@
 //! example of a token contract wiring `check()` into its `transfer` path.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec};
+
+/// Batch operations are capped to reduce the chance of a single invocation
+/// exceeding Soroban instruction/resource limits.
+const MAX_BATCH_SIZE: u32 = 100;
 
 #[contracttype]
 #[derive(Clone)]
@@ -44,6 +48,7 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     NotAuthorized = 3,
+    BatchTooLarge = 4,
 }
 
 #[contract]
@@ -82,6 +87,22 @@ impl DenylistGate {
         Ok(())
     }
 
+    /// Remove every address in `addresses` from the denylist. Admin-only.
+    pub fn remove_multiple_from_denylist(env: Env, admin: Address, addresses: Vec<Address>) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        if addresses.len() > MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+
+        for address in addresses.iter() {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Denied(address.clone()));
+            DenyRemove { address }.publish(&env);
+        }
+        Ok(())
+    }
+
     /// Returns `true` if `address` is clear to transact, i.e. it is NOT on
     /// the denylist. This is the function other contracts should call via
     /// cross-contract invocation before proceeding with a transfer.
@@ -91,6 +112,11 @@ impl DenylistGate {
             .persistent()
             .get(&DataKey::Denied(address))
             .unwrap_or(false)
+    }
+
+    /// Returns `true` if `address` is currently on the denylist.
+    pub fn is_denylisted(env: Env, address: Address) -> bool {
+        !Self::check(env, address)
     }
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {

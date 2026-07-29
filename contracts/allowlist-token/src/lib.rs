@@ -27,6 +27,7 @@ use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contract
 #[derive(Clone)]
 enum DataKey {
     Admin,
+    PendingAdmin,
     Token,
     Allowed(Address),
 }
@@ -52,6 +53,14 @@ pub struct Blocked {
     pub amount: i128,
 }
 
+#[contractevent]
+pub struct AdminTransferred {
+    #[topic]
+    pub old_admin: Address,
+    #[topic]
+    pub new_admin: Address,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -59,6 +68,8 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     NotAuthorized = 3,
+    NoPendingAdmin = 4,
+    PendingAdminMismatch = 5,
 }
 
 #[contract]
@@ -96,6 +107,42 @@ impl AllowlistToken {
             .persistent()
             .remove(&DataKey::Allowed(address.clone()));
         AllowRemove { address }.publish(&env);
+        Ok(())
+    }
+
+    /// Propose a new admin. The current admin remains active until the
+    /// proposed admin calls `accept_admin`.
+    pub fn propose_admin(env: Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &current_admin)?;
+        env.storage().instance().set(&DataKey::PendingAdmin, &new_admin);
+        Ok(())
+    }
+
+    /// Accept a pending admin transfer. Must be called by the proposed admin.
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        new_admin.require_auth();
+
+        let pending_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(Error::NoPendingAdmin)?;
+        if pending_admin != new_admin {
+            return Err(Error::PendingAdminMismatch);
+        }
+
+        let old_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        AdminTransferred {
+            old_admin,
+            new_admin,
+        }
+        .publish(&env);
         Ok(())
     }
 

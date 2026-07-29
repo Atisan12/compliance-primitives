@@ -4,6 +4,7 @@ members = [
     "contracts/allowlist-token",
     "contracts/denylist-gate",
     "contracts/jurisdiction-flag",
+    "contracts/policy-engine",
     "examples/denylist-gate-consumer",
 ]
 

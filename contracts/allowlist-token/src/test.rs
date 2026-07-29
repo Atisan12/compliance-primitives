@@ -1,6 +1,8 @@
 use super::*;
-use soroban_sdk::testutils::{Address as _, Events as _};
-use soroban_sdk::{contract, contractimpl, symbol_short, vec, Env, IntoVal, Map, Symbol, Val};
+use ed25519_dalek::SigningKey;
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
+use soroban_sdk::testutils::ed25519::Sign;
+use soroban_sdk::{contract, contractimpl, symbol_short, vec, Bytes, BytesN, Env, IntoVal, Map, Symbol, Val};
 use std::path::{Path, PathBuf};
 
 /// A minimal token double used only by these tests, so `allowlist-token`'s
@@ -78,6 +80,34 @@ fn assert_budget_within_threshold(measured: (u64, u64), baseline: (u64, u64), la
         measured_memory <= memory_limit,
         "{label} memory regression: measured {measured_memory}, baseline {baseline_memory}, limit {memory_limit}"
     );
+}
+
+fn delegated_message_bytes(env: &Env, target: &Address, nonce: u64, expiry: u64) -> Bytes {
+    let mut message = Bytes::new(env);
+    message.append(&Bytes::from_slice(env, b"allowlist-delegated-v1:"));
+    let target_str = target.to_string().to_string();
+    message.append(&Bytes::from_slice(env, target_str.as_bytes()));
+    message.push_back(b':');
+    message.append(&Bytes::from_slice(env, b"add_to_allowlist"));
+    message.push_back(b':');
+    let nonce_str = nonce.to_string();
+    message.append(&Bytes::from_slice(env, nonce_str.as_bytes()));
+    message.push_back(b':');
+    let expiry_str = expiry.to_string();
+    message.append(&Bytes::from_slice(env, expiry_str.as_bytes()));
+    message
+}
+
+fn sign_delegated_action(
+    env: &Env,
+    signing_key: &SigningKey,
+    target: &Address,
+    nonce: u64,
+    expiry: u64,
+) -> BytesN<64> {
+    let message = delegated_message_bytes(env, target, nonce, expiry);
+    let sig = signing_key.sign(&message).unwrap();
+    BytesN::from_array(env, &sig)
 }
 
 #[test]
@@ -190,6 +220,95 @@ fn test_non_admin_allowlist_mutations_rejected_end_to_end() {
     let remove_result = client.try_remove_from_allowlist(&impostor, &alice);
     assert_eq!(remove_result, Err(Ok(Error::NotAuthorized)));
     assert!(client.is_allowed(&alice));
+}
+
+#[test]
+fn test_delegated_add_to_allowlist_succeeds() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let signing_key = SigningKey::from_bytes(&[
+        0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+        23, 24, 25, 26, 27, 28, 29, 30, 31,
+    ]);
+    let pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+
+    client.set_delegated_admin_key(&admin, &pubkey);
+
+    let expiry = env.ledger().timestamp() + 60;
+    let signature = sign_delegated_action(&env, &signing_key, &alice, 1, expiry);
+
+    client.add_to_allowlist_delegated(&admin, &alice, &1u64, &expiry, &signature);
+    assert!(client.is_allowed(&alice));
+}
+
+#[test]
+fn test_delegated_add_to_allowlist_rejects_replay() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let signing_key = SigningKey::from_bytes(&[
+        0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+        23, 24, 25, 26, 27, 28, 29, 30, 31,
+    ]);
+    let pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+
+    client.set_delegated_admin_key(&admin, &pubkey);
+
+    let expiry = env.ledger().timestamp() + 60;
+    let signature = sign_delegated_action(&env, &signing_key, &alice, 1, expiry);
+
+    client.add_to_allowlist_delegated(&admin, &alice, &1u64, &expiry, &signature);
+    let replay = client.try_add_to_allowlist_delegated(&admin, &alice, &1u64, &expiry, &signature);
+    assert_eq!(replay, Err(Ok(Error::InvalidNonce)));
+    assert!(client.is_allowed(&alice));
+}
+
+#[test]
+fn test_delegated_add_to_allowlist_rejects_expired_signature() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let signing_key = SigningKey::from_bytes(&[
+        0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+        23, 24, 25, 26, 27, 28, 29, 30, 31,
+    ]);
+    let pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+
+    client.set_delegated_admin_key(&admin, &pubkey);
+
+    env.ledger().set_timestamp(100);
+    let expiry = 99u64;
+    let signature = sign_delegated_action(&env, &signing_key, &alice, 1, expiry);
+
+    let result = client.try_add_to_allowlist_delegated(&admin, &alice, &1u64, &expiry, &signature);
+    assert_eq!(result, Err(Ok(Error::ExpiredSignature)));
+    assert!(!client.is_allowed(&alice));
+}
+
+#[test]
+fn test_delegated_add_to_allowlist_rejects_non_admin_key() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let signing_key = SigningKey::from_bytes(&[
+        0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+        23, 24, 25, 26, 27, 28, 29, 30, 31,
+    ]);
+    let attacker_key = SigningKey::from_bytes(&[
+        32u8, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+        54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+    ]);
+    let pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+
+    client.set_delegated_admin_key(&admin, &pubkey);
+
+    let expiry = env.ledger().timestamp() + 60;
+    let signature = sign_delegated_action(&env, &attacker_key, &alice, 1, expiry);
+
+    let result = client.try_add_to_allowlist_delegated(&admin, &alice, &1u64, &expiry, &signature);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(!client.is_allowed(&alice));
 }
 
 #[test]

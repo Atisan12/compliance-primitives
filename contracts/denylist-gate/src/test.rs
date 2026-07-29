@@ -86,3 +86,100 @@ fn test_double_initialize_fails() {
     let result = client.try_initialize(&admin);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
+
+// ── compliance-officer tests ───────────────────────────────────────────
+
+#[test]
+fn test_admin_can_set_and_revoke_compliance_officer() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+
+    // Set compliance officer
+    client.set_compliance_officer(&admin, &officer);
+
+    // Officer can add to denylist
+    let alice = Address::generate(&env);
+    client.add_to_denylist(&officer, &alice);
+    assert!(!client.check(&alice));
+
+    // Revoke compliance officer
+    client.revoke_compliance_officer(&admin);
+
+    // Now officer cannot add another address
+    let bob = Address::generate(&env);
+    let result = client.try_add_to_denylist(&officer, &bob);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.check(&bob));
+}
+
+#[test]
+fn test_compliance_officer_can_add_and_remove() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let alice = Address::generate(&env);
+
+    // Officer can add
+    client.add_to_denylist(&officer, &alice);
+    assert!(!client.check(&alice));
+
+    // Officer can remove
+    client.remove_from_denylist(&officer, &alice);
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_compliance_officer_cannot_set_or_revoke_role() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let another = Address::generate(&env);
+
+    // Officer cannot set another compliance officer
+    let result = client.try_set_compliance_officer(&officer, &another);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer cannot revoke own role
+    let result = client.try_revoke_compliance_officer(&officer);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer still has their role
+    let alice = Address::generate(&env);
+    client.add_to_denylist(&officer, &alice);
+    assert!(!client.check(&alice));
+}
+
+#[test]
+fn test_admin_can_still_perform_compliance_actions() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let alice = Address::generate(&env);
+
+    // Admin can still add/remove directly
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+
+    client.remove_from_denylist(&admin, &alice);
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_unset_officer_rejected_for_compliance_actions() {
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+
+    // No compliance officer set — unknown address cannot act
+    let rando = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let result = client.try_add_to_denylist(&rando, &alice);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.check(&alice));
+}

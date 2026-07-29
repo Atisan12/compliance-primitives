@@ -23,6 +23,7 @@ use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contract
 #[derive(Clone)]
 enum DataKey {
     Issuer,
+    ComplianceOfficer,
     Jurisdiction(Address),
 }
 
@@ -58,14 +59,38 @@ impl JurisdictionFlag {
         Ok(())
     }
 
-    /// Attach jurisdiction `code` to `address`. Issuer-only.
+    /// Assign the compliance-officer role to `officer`. Issuer-only.
+    /// A compliance officer may call `set_jurisdiction` but may NOT
+    /// assign or revoke the role.
+    pub fn set_compliance_officer(
+        env: Env,
+        issuer: Address,
+        officer: Address,
+    ) -> Result<(), Error> {
+        Self::require_issuer(&env, &issuer)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::ComplianceOfficer, &officer);
+        Ok(())
+    }
+
+    /// Revoke the compliance-officer role. Issuer-only.
+    pub fn revoke_compliance_officer(env: Env, issuer: Address) -> Result<(), Error> {
+        Self::require_issuer(&env, &issuer)?;
+        env.storage()
+            .instance()
+            .remove(&DataKey::ComplianceOfficer);
+        Ok(())
+    }
+
+    /// Attach jurisdiction `code` to `address`. Issuer or compliance-officer.
     pub fn set_jurisdiction(
         env: Env,
         issuer: Address,
         address: Address,
         code: String,
     ) -> Result<(), Error> {
-        Self::require_issuer(&env, &issuer)?;
+        Self::require_compliance_authority(&env, &issuer)?;
         env.storage()
             .persistent()
             .set(&DataKey::Jurisdiction(address.clone()), &code);
@@ -99,6 +124,29 @@ impl JurisdictionFlag {
             return Err(Error::NotAuthorized);
         }
         Ok(())
+    }
+
+    /// Checks that `caller` is either the issuer or the compliance officer.
+    fn require_compliance_authority(env: &Env, caller: &Address) -> Result<(), Error> {
+        caller.require_auth();
+        let stored_issuer: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Issuer)
+            .ok_or(Error::NotInitialized)?;
+        if stored_issuer == *caller {
+            return Ok(());
+        }
+        if let Some(officer) = env
+            .storage()
+            .instance()
+            .get(&DataKey::ComplianceOfficer)
+        {
+            if officer == *caller {
+                return Ok(());
+            }
+        }
+        Err(Error::NotAuthorized)
     }
 }
 

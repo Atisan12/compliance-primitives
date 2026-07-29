@@ -206,3 +206,100 @@ fn test_remove_from_allowlist_emits_allow_remove_event() {
         ]
     );
 }
+
+// ── compliance-officer tests ───────────────────────────────────────────
+
+#[test]
+fn test_admin_can_set_and_revoke_compliance_officer() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+
+    // Set compliance officer
+    client.set_compliance_officer(&admin, &officer);
+
+    // Officer can add to allowlist
+    let alice = Address::generate(&env);
+    client.add_to_allowlist(&officer, &alice);
+    assert!(client.is_allowed(&alice));
+
+    // Revoke compliance officer
+    client.revoke_compliance_officer(&admin);
+
+    // Now officer cannot add another address
+    let bob = Address::generate(&env);
+    let result = client.try_add_to_allowlist(&officer, &bob);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(!client.is_allowed(&bob));
+}
+
+#[test]
+fn test_compliance_officer_can_add_and_remove() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let alice = Address::generate(&env);
+
+    // Officer can add
+    client.add_to_allowlist(&officer, &alice);
+    assert!(client.is_allowed(&alice));
+
+    // Officer can remove
+    client.remove_from_allowlist(&officer, &alice);
+    assert!(!client.is_allowed(&alice));
+}
+
+#[test]
+fn test_compliance_officer_cannot_set_or_revoke_role() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let another = Address::generate(&env);
+
+    // Officer cannot set another compliance officer
+    let result = client.try_set_compliance_officer(&officer, &another);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer cannot revoke own role
+    let result = client.try_revoke_compliance_officer(&officer);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer still has their role
+    let alice = Address::generate(&env);
+    client.add_to_allowlist(&officer, &alice);
+    assert!(client.is_allowed(&alice));
+}
+
+#[test]
+fn test_admin_can_still_perform_compliance_actions() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let alice = Address::generate(&env);
+
+    // Admin can still add/remove directly
+    client.add_to_allowlist(&admin, &alice);
+    assert!(client.is_allowed(&alice));
+
+    client.remove_from_allowlist(&admin, &alice);
+    assert!(!client.is_allowed(&alice));
+}
+
+#[test]
+fn test_unset_officer_rejected_for_compliance_actions() {
+    let env = Env::default();
+    let (_admin, _token_id, _contract_id, client) = setup(&env);
+
+    // No compliance officer set — unknown address cannot act
+    let rando = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let result = client.try_add_to_allowlist(&rando, &alice);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(!client.is_allowed(&alice));
+}

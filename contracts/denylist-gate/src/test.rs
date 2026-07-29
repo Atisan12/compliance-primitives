@@ -1,5 +1,6 @@
 use super::*;
-use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::testutils::storage::Persistent as _;
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::{vec, Env, IntoVal, Map, Symbol, Val};
 
 fn setup(env: &Env) -> (Address, Address, DenylistGateClient<'_>) {
@@ -85,4 +86,37 @@ fn test_double_initialize_fails() {
     let (admin, _contract_id, client) = setup(&env);
     let result = client.try_initialize(&admin);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}
+
+#[test]
+fn test_add_to_denylist_extends_ttl() {
+    // Confirm that add_to_denylist bumps the persistent TTL of the
+    // DataKey::Denied entry so it never silently archives and flips to
+    // "clear" — the fail-open failure mode described in the contract docs.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Advance the ledger to a non-zero sequence number so TTL arithmetic is
+    // meaningful (TTL is measured from the current ledger).
+    env.ledger().set_sequence_number(1_000);
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(DenylistGate, ());
+    let client = DenylistGateClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    let alice = Address::generate(&env);
+    client.add_to_denylist(&admin, &alice);
+
+    // Persistent storage TTLs can only be read from within a contract
+    // execution context — wrap the assertion in as_contract().
+    let key = DataKey::Denied(alice);
+    env.as_contract(&contract_id, || {
+        let ttl = env.storage().persistent().get_ttl(&key);
+        // THRESHOLD is MAX_TTL / 2 = 3_155_760
+        assert!(
+            ttl >= 3_155_760,
+            "TTL should be extended to at least THRESHOLD ledgers; got {ttl}"
+        );
+    });
 }

@@ -1,0 +1,21 @@
+# clippy.toml — workspace-wide lint configuration for compliance-primitives.
+#
+# This workspace contains small, single-responsibility #![no_std] Soroban
+# contracts; the thresholds below are tightened relative to Clippy's defaults
+# to keep each contract easy to audit.
+
+# Soroban entry points regularly take (Env, admin, address, amount, …); bumping
+# the threshold to 7 avoids noisy warnings on legitimate cross-contract APIs
+# while still catching genuinely over-parameterised helpers.
+too-many-arguments-threshold = 7
+
+# Keep functions simple enough that a reviewer can hold the whole logic in
+# their head. Default is 25; 15 is achievable for single-responsibility gates.
+cognitive-complexity-threshold = 15
+
+# Forbid panicking std macros that cannot fire in #![no_std] WASM builds but
+# would still compile in test cfg, masking accidental dependency on std.
+disallowed-macros = [
+    { path = "std::panic", reason = "use Soroban's panic_with_error! or return Err instead" },
+    { path = "std::unimplemented", reason = "all contract entry points must be implemented" },
+]

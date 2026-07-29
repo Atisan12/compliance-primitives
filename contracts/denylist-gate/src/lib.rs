@@ -63,11 +63,33 @@ impl DenylistGate {
     }
 
     /// Add `address` to the denylist. Admin-only.
+    ///
+    /// # Storage TTL
+    /// Denylist entries use persistent storage. If an entry were to fall out
+    /// of the ledger's live-state window (archival) and the archive were not
+    /// restored, `check()` would return `true` ("clear to transact") for the
+    /// archived address — a **fail-open** footgun that is far more dangerous
+    /// than the analogous case for an allowlist.
+    ///
+    /// To guard against this, we extend the TTL to `MAX_TTL` immediately
+    /// after writing.  `MAX_TTL` (1 year ≈ 6 311 520 ledgers at 5 s/ledger)
+    /// should be refreshed by the keeper script on every admin write; this
+    /// call ensures a fresh write always starts with the maximum window.
     pub fn add_to_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
+        let key = DataKey::Denied(address.clone());
+        env.storage().persistent().set(&key, &true);
+
+        // Extend to ~1 year (6_311_520 ledgers at 5 s each).  The threshold
+        // is set to half that so a keeper calling extend on every admin
+        // interaction keeps entries perpetually live without on-chain storage
+        // for the extension schedule.
+        const MAX_TTL: u32 = 6_311_520;
+        const THRESHOLD: u32 = MAX_TTL / 2;
         env.storage()
             .persistent()
-            .set(&DataKey::Denied(address.clone()), &true);
+            .extend_ttl(&key, THRESHOLD, MAX_TTL);
+
         DenyAdd { address }.publish(&env);
         Ok(())
     }

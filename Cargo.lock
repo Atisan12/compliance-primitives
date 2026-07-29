@@ -491,6 +491,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "denylist-gate-sep41"
+version = "0.1.0"
+dependencies = [
+ "denylist-gate",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"

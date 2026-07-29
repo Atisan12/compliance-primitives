@@ -38,6 +38,35 @@ fn test_set_jurisdiction_rejects_non_issuer() {
 }
 
 #[test]
+fn test_remove_jurisdiction_clears_code() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+
+    client.set_jurisdiction(&issuer, &alice, &code);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code));
+
+    client.remove_jurisdiction(&issuer, &alice);
+    assert_eq!(client.get_jurisdiction(&alice), None);
+}
+
+#[test]
+fn test_remove_jurisdiction_rejects_non_issuer() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+
+    client.set_jurisdiction(&issuer, &alice, &code);
+
+    let result = client.try_remove_jurisdiction(&impostor, &alice);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert_eq!(client.get_jurisdiction(&alice), Some(code));
+}
+
+#[test]
 fn test_is_permitted_jurisdiction_true_when_code_in_list() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);

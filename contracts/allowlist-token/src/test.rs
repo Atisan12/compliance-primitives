@@ -14,9 +14,7 @@ struct MockToken;
 impl MockToken {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "last"), &(from, to, amount));
+        env.storage().instance().set(&Symbol::new(&env, "last"), &(from, to, amount));
     }
 
     pub fn last_transfer(env: Env) -> Option<(Address, Address, i128)> {
@@ -180,12 +178,14 @@ fn test_transfer_blocked_when_recipient_not_allowlisted() {
             &env,
             (
                 contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
                 (symbol_short!("blocked"), alice.clone(), bob.clone()).into_val(&env),
-                Map::<Symbol, Val>::from_array(
-                    &env,
-                    [(symbol_short!("amount"), 500i128.into_val(&env))]
-                )
-                .into_val(&env),
+                Map::<Symbol, Val>::from_array(&env, [(symbol_short!("amount"), 500i128.into_val(&env))])
+                    .into_val(&env),
             ),
         ]
     );
@@ -346,6 +346,24 @@ fn test_is_allowed_false_before_initialize() {
 }
 
 #[test]
+fn test_get_admin_returns_initialized_admin() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+
+    assert_eq!(client.get_admin(), admin);
+}
+
+#[test]
+fn test_get_admin_fails_before_initialize() {
+    let env = Env::default();
+    let contract_id = env.register(AllowlistToken, ());
+    let client = AllowlistTokenClient::new(&env, &contract_id);
+
+    let result = client.try_get_admin();
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
+
+#[test]
 fn test_double_initialize_fails() {
     let env = Env::default();
     let (admin, token_id, _contract_id, client) = setup(&env);
@@ -389,9 +407,111 @@ fn test_remove_from_allowlist_emits_allow_remove_event() {
             &env,
             (
                 contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
                 (Symbol::new(&env, "allow_remove"), alice.clone()).into_val(&env),
                 Map::<Symbol, Val>::new(&env).into_val(&env),
             ),
         ]
     );
+}
+
+// ── compliance-officer tests ───────────────────────────────────────────
+
+#[test]
+fn test_admin_can_set_and_revoke_compliance_officer() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+
+    // Set compliance officer
+    client.set_compliance_officer(&admin, &officer);
+
+    // Officer can add to allowlist
+    let alice = Address::generate(&env);
+    client.add_to_allowlist(&officer, &alice);
+    assert!(client.is_allowed(&alice));
+
+    // Revoke compliance officer
+    client.revoke_compliance_officer(&admin);
+
+    // Now officer cannot add another address
+    let bob = Address::generate(&env);
+    let result = client.try_add_to_allowlist(&officer, &bob);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(!client.is_allowed(&bob));
+}
+
+#[test]
+fn test_compliance_officer_can_add_and_remove() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let alice = Address::generate(&env);
+
+    // Officer can add
+    client.add_to_allowlist(&officer, &alice);
+    assert!(client.is_allowed(&alice));
+
+    // Officer can remove
+    client.remove_from_allowlist(&officer, &alice);
+    assert!(!client.is_allowed(&alice));
+}
+
+#[test]
+fn test_compliance_officer_cannot_set_or_revoke_role() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let another = Address::generate(&env);
+
+    // Officer cannot set another compliance officer
+    let result = client.try_set_compliance_officer(&officer, &another);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer cannot revoke own role
+    let result = client.try_revoke_compliance_officer(&officer);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer still has their role
+    let alice = Address::generate(&env);
+    client.add_to_allowlist(&officer, &alice);
+    assert!(client.is_allowed(&alice));
+}
+
+#[test]
+fn test_admin_can_still_perform_compliance_actions() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let alice = Address::generate(&env);
+
+    // Admin can still add/remove directly
+    client.add_to_allowlist(&admin, &alice);
+    assert!(client.is_allowed(&alice));
+
+    client.remove_from_allowlist(&admin, &alice);
+    assert!(!client.is_allowed(&alice));
+}
+
+#[test]
+fn test_unset_officer_rejected_for_compliance_actions() {
+    let env = Env::default();
+    let (_admin, _token_id, _contract_id, client) = setup(&env);
+
+    // No compliance officer set — unknown address cannot act
+    let rando = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let result = client.try_add_to_allowlist(&rando, &alice);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(!client.is_allowed(&alice));
 }

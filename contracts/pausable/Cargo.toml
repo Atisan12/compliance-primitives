@@ -1,23 +1,20 @@
 [package]
-name = "allowlist-token"
+name = "compliance-pausable"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Soroban token wrapper that only permits transfers between allowlisted addresses."
+description = "Shared pausable helper for compliance-primitives contracts. Not a contract itself — no #[contract] macro, no wasm exports."
 publish = false
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
-compliance-pausable = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-ed25519-dalek = "2.1.1"
 
 [features]
-testutils = ["soroban-sdk/testutils", "compliance-pausable/testutils"]
+testutils = ["soroban-sdk/testutils"]

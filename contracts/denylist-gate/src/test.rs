@@ -99,6 +99,21 @@ fn test_add_and_remove_from_denylist() {
 }
 
 #[test]
+fn test_is_denylisted_is_inverse_of_check() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    assert_eq!(client.is_denylisted(&alice), !client.check(&alice));
+
+    client.add_to_denylist(&admin, &alice);
+    assert_eq!(client.is_denylisted(&alice), !client.check(&alice));
+
+    client.remove_from_denylist(&admin, &alice);
+    assert_eq!(client.is_denylisted(&alice), !client.check(&alice));
+}
+
+#[test]
 fn test_add_to_denylist_rejects_non_admin() {
     let env = Env::default();
     let (_admin, _contract_id, client) = setup(&env);
@@ -146,9 +161,205 @@ fn test_remove_from_denylist_never_added_is_noop() {
 }
 
 #[test]
+fn test_remove_multiple_from_denylist_removes_all_and_emits_events() {
+    let env = Env::default();
+    let (admin, contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Denied(alice.clone()), &true);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Denied(bob.clone()), &true);
+
+    client.remove_multiple_from_denylist(&admin, &vec![&env, alice.clone(), bob.clone()]);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "deny_remove"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "deny_remove"), bob.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+    assert!(client.check(&alice));
+    assert!(client.check(&bob));
+}
+
+#[test]
+fn test_remove_multiple_from_denylist_rejects_non_admin() {
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+    let alice = Address::generate(&env);
+
+    let result = client.try_remove_multiple_from_denylist(&impostor, &vec![&env, alice.clone()]);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_remove_multiple_from_denylist_empty_vec_is_noop() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+
+    client.remove_multiple_from_denylist(&admin, &vec![&env]);
+
+    assert_eq!(env.events().all(), vec![&env]);
+}
+
+#[test]
+fn test_remove_multiple_from_denylist_batch_limit_succeeds() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let mut addresses: Vec<Address> = Vec::new(&env);
+
+    for _ in 0..MAX_BATCH_SIZE {
+        let address = Address::generate(&env);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Denied(address.clone()), &true);
+        addresses.push_back(address);
+    }
+
+    client.remove_multiple_from_denylist(&admin, &addresses);
+
+    for address in addresses.iter() {
+        assert!(client.check(&address));
+    }
+}
+
+#[test]
+fn test_remove_multiple_from_denylist_over_batch_limit_rejected() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let mut addresses: Vec<Address> = Vec::new(&env);
+
+    for _ in 0..(MAX_BATCH_SIZE + 1) {
+        let address = Address::generate(&env);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Denied(address.clone()), &true);
+        addresses.push_back(address);
+    }
+
+    let first = addresses.get_unchecked(0);
+    let result = client.try_remove_multiple_from_denylist(&admin, &addresses);
+    assert_eq!(result, Err(Ok(Error::BatchTooLarge)));
+    assert!(!client.check(&first));
+}
+
+#[test]
 fn test_double_initialize_fails() {
     let env = Env::default();
     let (admin, _contract_id, client) = setup(&env);
     let result = client.try_initialize(&admin);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}
+
+// ── compliance-officer tests ───────────────────────────────────────────
+
+#[test]
+fn test_admin_can_set_and_revoke_compliance_officer() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+
+    // Set compliance officer
+    client.set_compliance_officer(&admin, &officer);
+
+    // Officer can add to denylist
+    let alice = Address::generate(&env);
+    client.add_to_denylist(&officer, &alice);
+    assert!(!client.check(&alice));
+
+    // Revoke compliance officer
+    client.revoke_compliance_officer(&admin);
+
+    // Now officer cannot add another address
+    let bob = Address::generate(&env);
+    let result = client.try_add_to_denylist(&officer, &bob);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.check(&bob));
+}
+
+#[test]
+fn test_compliance_officer_can_add_and_remove() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let alice = Address::generate(&env);
+
+    // Officer can add
+    client.add_to_denylist(&officer, &alice);
+    assert!(!client.check(&alice));
+
+    // Officer can remove
+    client.remove_from_denylist(&officer, &alice);
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_compliance_officer_cannot_set_or_revoke_role() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let another = Address::generate(&env);
+
+    // Officer cannot set another compliance officer
+    let result = client.try_set_compliance_officer(&officer, &another);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer cannot revoke own role
+    let result = client.try_revoke_compliance_officer(&officer);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer still has their role
+    let alice = Address::generate(&env);
+    client.add_to_denylist(&officer, &alice);
+    assert!(!client.check(&alice));
+}
+
+#[test]
+fn test_admin_can_still_perform_compliance_actions() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&admin, &officer);
+
+    let alice = Address::generate(&env);
+
+    // Admin can still add/remove directly
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+
+    client.remove_from_denylist(&admin, &alice);
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_unset_officer_rejected_for_compliance_actions() {
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+
+    // No compliance officer set — unknown address cannot act
+    let rando = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let result = client.try_add_to_denylist(&rando, &alice);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.check(&alice));
 }

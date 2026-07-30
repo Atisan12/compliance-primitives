@@ -26,10 +26,16 @@ pub trait DenylistGateInterface {
     fn check(env: Env, address: Address) -> bool;
 }
 
+#[contractclient(name = "BreakerClient")]
+pub trait CircuitBreakerInterface {
+    fn is_frozen(env: Env) -> bool;
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Gate,
+    Breaker,
     Balance(Address),
 }
 
@@ -41,6 +47,7 @@ pub enum Error {
     AlreadyInitialized = 2,
     InsufficientBalance = 3,
     DeniedByGate = 4,
+    FrozenByBreaker = 5,
 }
 
 #[contract]
@@ -49,11 +56,13 @@ pub struct ExampleToken;
 #[contractimpl]
 impl ExampleToken {
     /// `gate` is the address of a deployed `denylist-gate` contract instance.
-    pub fn initialize(env: Env, gate: Address) -> Result<(), Error> {
+    /// `breaker` is the address of a deployed `circuit-breaker` contract.
+    pub fn initialize(env: Env, gate: Address, breaker: Address) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Gate) {
             return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Gate, &gate);
+        env.storage().instance().set(&DataKey::Breaker, &breaker);
         Ok(())
     }
 
@@ -99,8 +108,17 @@ impl ExampleToken {
         // Step 2: build a client for the deployed gate contract.
         let gate = GateClient::new(&env, &gate_address);
 
-        // Step 3 & 4: check both parties via cross-contract call, and abort
-        // before touching any balances if either is denied.
+        let breaker_address: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Breaker)
+            .ok_or(Error::NotInitialized)?;
+        let breaker = BreakerClient::new(&env, &breaker_address);
+
+        if breaker.is_frozen() {
+            return Err(Error::FrozenByBreaker);
+        }
+
         if !gate.check(&from) || !gate.check(&to) {
             return Err(Error::DeniedByGate);
         }

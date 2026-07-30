@@ -5,7 +5,7 @@ members = [
     "contracts/audit-log",
     "contracts/denylist-gate",
     "contracts/jurisdiction-flag",
-    "contracts/policy-engine",
+    "contracts/circuit-breaker",
     "examples/denylist-gate-consumer",
     "examples/rwa-token",
 ]

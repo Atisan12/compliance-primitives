@@ -21,6 +21,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace --verbose
+      - name: Run doc tests
+        run: cargo test --workspace --doc --verbose
 
   clippy:
     name: cargo clippy
@@ -36,6 +38,20 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  fmt:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
   wasm-build:
     name: wasm32v1-none build
     runs-on: ubuntu-latest
@@ -49,3 +65,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Build contracts to wasm
         run: cargo build --workspace --target wasm32v1-none --release
+
+  cargo-deny:
+    name: cargo deny check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2

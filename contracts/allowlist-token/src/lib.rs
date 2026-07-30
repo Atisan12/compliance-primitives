@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Stellar Compliance Kit contributors
+// SPDX-License-Identifier: MIT
+// See the LICENSE file in the repository root for the full license text.
+
 //! `allowlist-token` is a `#![no_std]` Soroban contract that wraps an existing
 //! SEP-41 token and only permits `transfer` calls between two addresses that
 //! are both present on an on-chain allowlist.
@@ -19,16 +23,26 @@
 //! called into by another contract; contrast with `denylist-gate` and
 //! `jurisdiction-flag`, which are designed to be composed into a caller's
 //! own token contract.
+//!
+//! **Pausability**: the admin may call `pause` to halt all mutating
+//! operations (`add_to_allowlist`, `remove_from_allowlist`, `transfer`).
+//! The read-only `is_allowed` method is unaffected by pause state. The
+//! shared [`compliance_pausable`] helper crate implements the pause storage
+//! logic; this contract only supplies admin-gating and event emission.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env, Vec};
 
+/// Storage keys for this contract's state.
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    /// The admin address, set once in `initialize`. Instance storage.
     Admin,
     PendingAdmin,
     Token,
+    /// Whether a given address is on the allowlist. Persistent storage,
+    /// keyed per address.
     Allowed(Address),
 }
 
@@ -90,22 +104,20 @@ impl AllowlistToken {
         Ok(())
     }
 
-    /// Add `address` to the allowlist. Admin-only.
+    /// Add `address` to the allowlist. Admin-only. Blocked while paused.
     pub fn add_to_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Allowed(address.clone()), &true);
+        env.storage().persistent().set(&DataKey::Allowed(address.clone()), &true);
         AllowAdd { address }.publish(&env);
         Ok(())
     }
 
-    /// Remove `address` from the allowlist. Admin-only.
+    /// Remove `address` from the allowlist. Admin-only. Blocked while paused.
     pub fn remove_from_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .remove(&DataKey::Allowed(address.clone()));
+        env.storage().persistent().remove(&DataKey::Allowed(address.clone()));
         AllowRemove { address }.publish(&env);
         Ok(())
     }
@@ -147,14 +159,36 @@ impl AllowlistToken {
     }
 
     /// Returns true if `address` is currently allowlisted.
+    ///
+    /// **Not** affected by pause state — reads always succeed.
     pub fn is_allowed(env: Env, address: Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Allowed(address))
-            .unwrap_or(false)
+        env.storage().persistent().get(&DataKey::Allowed(address)).unwrap_or(false)
+    }
+
+    /// Pause all transfers. Admin-only.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &true);
+        Paused { by: admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Unpause transfers. Admin-only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &false);
+        Unpaused { by: admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Returns true if transfers are paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
     }
 
     /// Transfer `amount` of the underlying token from `from` to `to`.
+    ///
+    /// Blocked while paused — returns `Err(ContractPaused)`.
     ///
     /// Returns `Ok(false)` without forwarding the transfer if either party is
     /// not allowlisted, and emits a `Blocked` event so the attempt is
@@ -162,32 +196,53 @@ impl AllowlistToken {
     /// error rolls back everything it did, including events, so a blocked
     /// attempt is reported as `Ok(false)` rather than an `Err` — that's what
     /// lets the audit event actually land. `Err` is reserved for
-    /// configuration failures (e.g. the contract was never initialized).
+    /// configuration failures (e.g. the contract was never initialized or is
+    /// paused).
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<bool, Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         from.require_auth();
 
-        if !Self::is_allowed(env.clone(), from.clone()) || !Self::is_allowed(env.clone(), to.clone()) {
+        if !Self::is_allowed(env.clone(), from.clone())
+            || !Self::is_allowed(env.clone(), to.clone())
+        {
             Blocked { from, to, amount }.publish(&env);
             return Ok(false);
         }
 
-        let token_address: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Token)
-            .ok_or(Error::NotInitialized)?;
+        let token_address: Address = env.storage().instance().get(&DataKey::Token).ok_or(Error::NotInitialized)?;
         let token_client = token::Client::new(&env, &token_address);
         token_client.transfer(&from, &to, &amount);
         Ok(true)
     }
 
+    /// Pause the contract. Admin-only.
+    ///
+    /// While paused, `add_to_allowlist`, `remove_from_allowlist`, and
+    /// `transfer` return `Error::ContractPaused`. `is_allowed` continues
+    /// to work normally.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        compliance_pausable::pause(&env);
+        Paused { admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Unpause the contract. Admin-only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        compliance_pausable::unpause(&env);
+        Unpaused { admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Returns `true` if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        compliance_pausable::is_paused(&env)
+    }
+
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
         admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::NotInitialized)?;
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
         if stored_admin != *admin {
             return Err(Error::NotAuthorized);
         }

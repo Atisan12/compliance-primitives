@@ -1,0 +1,11 @@
+[allowlist-token.transfer]
+cpu = 1
+memory = 1
+
+[denylist-gate.check]
+cpu = 1
+memory = 1
+
+[jurisdiction-flag.is_permitted_jurisdiction]
+cpu = 1
+memory = 1

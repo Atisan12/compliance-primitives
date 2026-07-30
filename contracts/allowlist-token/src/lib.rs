@@ -29,11 +29,17 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env,
 };
 
+/// Storage keys for this contract's state.
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    /// The admin address, set once in `initialize`. Instance storage.
     Admin,
+    /// The underlying SEP-41 token contract address transfers are
+    /// forwarded to. Instance storage.
     Token,
+    /// Whether a given address is on the allowlist. Persistent storage,
+    /// keyed per address.
     Allowed(Address),
 }
 
@@ -56,6 +62,18 @@ pub struct Blocked {
     #[topic]
     pub to: Address,
     pub amount: i128,
+}
+
+#[contractevent]
+pub struct Paused {
+    #[topic]
+    pub by: Address,
+}
+
+#[contractevent]
+pub struct Unpaused {
+    #[topic]
+    pub by: Address,
 }
 
 #[contracterror]
@@ -88,29 +106,58 @@ impl AllowlistToken {
     /// Add `address` to the allowlist. Admin-only.
     pub fn add_to_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Allowed(address.clone()), &true);
+        env.storage().persistent().set(&DataKey::Allowed(address.clone()), &true);
         AllowAdd { address }.publish(&env);
+        Ok(())
+    }
+
+    /// Add multiple addresses to the allowlist in one call. Admin-only.
+    pub fn add_multiple_to_allowlist(env: Env, admin: Address, addresses: Vec<Address>) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        let mut index = 0u32;
+        while index < addresses.len() {
+            let address = addresses.get(index).unwrap();
+            env.storage()
+                .persistent()
+                .set(&DataKey::Allowed(address.clone()), &true);
+            AllowAdd { address: address.clone() }.publish(&env);
+            index += 1;
+        }
         Ok(())
     }
 
     /// Remove `address` from the allowlist. Admin-only.
     pub fn remove_from_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .remove(&DataKey::Allowed(address.clone()));
+        env.storage().persistent().remove(&DataKey::Allowed(address.clone()));
         AllowRemove { address }.publish(&env);
         Ok(())
     }
 
     /// Returns true if `address` is currently allowlisted.
     pub fn is_allowed(env: Env, address: Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Allowed(address))
-            .unwrap_or(false)
+        env.storage().persistent().get(&DataKey::Allowed(address)).unwrap_or(false)
+    }
+
+    /// Pause all transfers. Admin-only.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &true);
+        Paused { by: admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Unpause transfers. Admin-only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &false);
+        Unpaused { by: admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Returns true if transfers are paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
     }
 
     /// Transfer `amount` of the underlying token from `from` to `to`.
@@ -132,11 +179,7 @@ impl AllowlistToken {
             return Ok(false);
         }
 
-        let token_address: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Token)
-            .ok_or(Error::NotInitialized)?;
+        let token_address: Address = env.storage().instance().get(&DataKey::Token).ok_or(Error::NotInitialized)?;
         let token_client = token::Client::new(&env, &token_address);
         token_client.transfer(&from, &to, &amount);
         Ok(true)
@@ -144,11 +187,7 @@ impl AllowlistToken {
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
         admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::NotInitialized)?;
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
         if stored_admin != *admin {
             return Err(Error::NotAuthorized);
         }

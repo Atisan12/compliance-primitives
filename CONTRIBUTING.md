@@ -29,6 +29,30 @@ contribution are also tagged `good first issue`.
 6. **Open a pull request** against `main`, referencing the issue it closes
    (e.g. `Closes #12`). Describe what changed and why.
 
+## Complexity labels and expected PR size
+
+The complexity label on an issue is also a signal for how big the resulting
+PR should be. Before you start, gut-check your planned change against the
+issue's label:
+
+- **`complexity: trivial`** — typically a single file, or a small
+  documentation/test addition. No new public API surface. Example: adding an
+  issue template, or a single focused unit test like the one requested in
+  this same batch (`check()` returns true immediately after
+  `remove_from_denylist`).
+- **`complexity: medium`** — typically adds one new public function, or a
+  new test category, to a single contract. Example: adding a `get_admin()`
+  view function to `allowlist-token`, including happy-path and
+  not-initialized test coverage.
+- **`complexity: high`** — typically involves a design or threat-model
+  writeup, changes that span multiple contracts, or new tooling/CI. Example:
+  introducing a new cross-contract composition pattern or a new primitive
+  crate.
+
+If your planned PR looks a lot bigger (or smaller) than the label suggests,
+that's worth flagging in the issue before you start — the label may be
+wrong, or the issue may need to be split.
+
 ## Picking up an issue
 
 Comment on the issue to let others know you're working on it. If you go

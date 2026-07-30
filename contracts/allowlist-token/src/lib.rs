@@ -134,6 +134,14 @@ impl AllowlistToken {
         Ok(())
     }
 
+    /// Returns the stored admin address.
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)
+    }
+
     /// Returns true if `address` is currently allowlisted.
     pub fn is_allowed(env: Env, address: Address) -> bool {
         env.storage().persistent().get(&DataKey::Allowed(address)).unwrap_or(false)

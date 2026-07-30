@@ -35,9 +35,11 @@ one job:
   call to check an address against a permitted-jurisdictions list.
 
 [`/examples/denylist-gate-consumer`](./examples/denylist-gate-consumer) is a
-minimal reference token contract showing the cross-contract calling pattern
-for `denylist-gate` — worth reading before wiring these into your own
-contract.
+minimal reference token showing the cross-contract calling pattern for
+`denylist-gate`. [`/examples/rwa-token`](./examples/rwa-token) composes all
+three primitives in one `transfer` path — see its
+[TESTNET.md](./examples/rwa-token/TESTNET.md) for the testnet reference
+deployment and walkthrough.
 
 ## Quick start
 
@@ -52,9 +54,12 @@ cargo test --workspace
 # Lint
 cargo clippy --workspace --all-targets -- -D warnings
 
-# Build a contract to wasm (requires the wasm32v1-none target:
-# `rustup target add wasm32v1-none`)
+# Build a contract to wasm (the wasm32v1-none target is pinned in
+# rust-toolchain.toml, so rustup installs it automatically)
 stellar contract build
+
+# Equivalent, via the cargo alias in .cargo/config.toml
+cargo build-wasm
 
 # Deploy a built contract to testnet, e.g. denylist-gate
 stellar contract deploy \
@@ -62,6 +67,10 @@ stellar contract deploy \
   --source <your-testnet-identity> \
   --network testnet
 ```
+
+See [`examples/testnet.env.example`](./examples/testnet.env.example) for an
+example config covering the identity/network setup needed for the deploy +
+invoke round trip above.
 
 Alternatively, use [`scripts/deploy-testnet.sh`](./scripts/deploy-testnet.sh) to
 build all contracts and deploy one to testnet in a single step:
@@ -109,6 +118,10 @@ This repo is part of the **Drips Wave Stellar Program**, and issues are
 labeled by complexity (`complexity: trivial`, `complexity: medium`,
 `complexity: high`) so you can find something that matches how deep you
 want to go — issues tagged `good first issue` are a good place to start.
+
+## Security
+
+See [SECURITY.md](./SECURITY.md) for how to report a vulnerability.
 
 ## License
 

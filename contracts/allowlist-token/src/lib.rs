@@ -21,13 +21,14 @@
 //! own token contract.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env, Vec};
 
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
     Token,
+    Paused,
     Allowed(Address),
 }
 
@@ -50,6 +51,18 @@ pub struct Blocked {
     #[topic]
     pub to: Address,
     pub amount: i128,
+}
+
+#[contractevent]
+pub struct Paused {
+    #[topic]
+    pub by: Address,
+}
+
+#[contractevent]
+pub struct Unpaused {
+    #[topic]
+    pub by: Address,
 }
 
 #[contracterror]
@@ -87,6 +100,21 @@ impl AllowlistToken {
         Ok(())
     }
 
+    /// Add multiple addresses to the allowlist in one call. Admin-only.
+    pub fn add_multiple_to_allowlist(env: Env, admin: Address, addresses: Vec<Address>) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        let mut index = 0u32;
+        while index < addresses.len() {
+            let address = addresses.get(index).unwrap();
+            env.storage()
+                .persistent()
+                .set(&DataKey::Allowed(address.clone()), &true);
+            AllowAdd { address: address.clone() }.publish(&env);
+            index += 1;
+        }
+        Ok(())
+    }
+
     /// Remove `address` from the allowlist. Admin-only.
     pub fn remove_from_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
@@ -98,6 +126,27 @@ impl AllowlistToken {
     /// Returns true if `address` is currently allowlisted.
     pub fn is_allowed(env: Env, address: Address) -> bool {
         env.storage().persistent().get(&DataKey::Allowed(address)).unwrap_or(false)
+    }
+
+    /// Pause all transfers. Admin-only.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &true);
+        Paused { by: admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Unpause transfers. Admin-only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &false);
+        Unpaused { by: admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Returns true if transfers are paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
     }
 
     /// Transfer `amount` of the underlying token from `from` to `to`.
@@ -112,7 +161,10 @@ impl AllowlistToken {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<bool, Error> {
         from.require_auth();
 
-        if !Self::is_allowed(env.clone(), from.clone()) || !Self::is_allowed(env.clone(), to.clone()) {
+        if Self::is_paused(env.clone())
+            || !Self::is_allowed(env.clone(), from.clone())
+            || !Self::is_allowed(env.clone(), to.clone())
+        {
             Blocked { from, to, amount }.publish(&env);
             return Ok(false);
         }

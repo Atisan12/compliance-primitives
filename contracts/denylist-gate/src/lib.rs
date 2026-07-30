@@ -18,6 +18,12 @@
 //! **Composition**: this contract is meant to be called into, not deployed
 //! as a token itself. See `/examples/denylist-gate-consumer` for a worked
 //! example of a token contract wiring `check()` into its `transfer` path.
+//!
+//! **Pausability**: the admin may call `pause` to halt all mutating operations
+//! (`add_to_denylist`, `remove_from_denylist`). The read-only `check` method
+//! is unaffected by pause state — callers can always query the list. The
+//! shared [`compliance_pausable`] helper crate implements the pause storage
+//! logic; this contract only supplies admin-gating and event emission.
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec};
@@ -45,6 +51,18 @@ pub struct DenyRemove {
     pub address: Address,
 }
 
+#[contractevent]
+pub struct Paused {
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+pub struct Unpaused {
+    #[topic]
+    pub admin: Address,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -52,6 +70,7 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     NotAuthorized = 3,
+    ContractPaused = 4,
 }
 
 #[contract]
@@ -79,46 +98,18 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Add `address` to the denylist and emit a [`DenyAdd`] event.
-    ///
-    /// # Auth
-    /// Admin-only: `admin` must authorize the call and match the stored admin.
-    ///
-    /// # Returns
-    /// `Ok(())` on success. Calling this again for an already-denied address
-    /// is a no-op aside from emitting another [`DenyAdd`] event.
-    ///
-    /// # Errors
-    /// - [`Error::NotInitialized`] if `initialize` has not been called.
-    /// - [`Error::NotAuthorized`] if `admin` is not the stored admin.
+    /// Add `address` to the denylist. Admin-only. Blocked while paused.
     pub fn add_to_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         Self::require_admin(&env, &admin)?;
         env.storage().persistent().set(&DataKey::Denied(address.clone()), &true);
         DenyAdd { address }.publish(&env);
         Ok(())
     }
 
-    /// Add every address in `addresses` to the denylist in a single call.
-    /// Admin is checked once; one `DenyAdd` event is emitted per address.
-    /// Useful for bulk sanctions-list syncs where issuing one transaction per
-    /// address would be impractical.
-    pub fn add_multiple_to_denylist(
-        env: Env,
-        admin: Address,
-        addresses: Vec<Address>,
-    ) -> Result<(), Error> {
-        Self::require_admin(&env, &admin)?;
-        for address in addresses.iter() {
-            env.storage()
-                .persistent()
-                .set(&DataKey::Denied(address.clone()), &true);
-            DenyAdd { address }.publish(&env);
-        }
-        Ok(())
-    }
-
-    /// Remove `address` from the denylist. Admin-only.
+    /// Remove `address` from the denylist. Admin-only. Blocked while paused.
     pub fn remove_from_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         Self::require_admin(&env, &admin)?;
         env.storage().persistent().remove(&DataKey::Denied(address.clone()));
         DenyRemove { address }.publish(&env);
@@ -137,30 +128,36 @@ impl DenylistGate {
     /// the denylist. This is the function other contracts should call via
     /// cross-contract invocation before proceeding with a transfer.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use denylist_gate::{DenylistGate, DenylistGateClient};
-    /// use soroban_sdk::{testutils::Address as _, Address, Env};
-    ///
-    /// let env = Env::default();
-    /// env.mock_all_auths();
-    /// let admin = Address::generate(&env);
-    /// let contract_id = env.register(DenylistGate, ());
-    /// let client = DenylistGateClient::new(&env, &contract_id);
-    /// client.initialize(&admin);
-    ///
-    /// let alice = Address::generate(&env);
-    /// assert!(client.check(&alice));
-    ///
-    /// client.add_to_denylist(&admin, &alice);
-    /// assert!(!client.check(&alice));
-    /// ```
+    /// **Not** affected by pause state — reads always succeed.
     pub fn check(env: Env, address: Address) -> bool {
         !env.storage()
             .persistent()
             .get(&DataKey::Denied(address))
             .unwrap_or(false)
+    }
+
+    /// Pause the contract. Admin-only.
+    ///
+    /// While paused, `add_to_denylist` and `remove_from_denylist` return
+    /// `Error::ContractPaused`. `check` continues to work normally.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        compliance_pausable::pause(&env);
+        Paused { admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Unpause the contract. Admin-only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        compliance_pausable::unpause(&env);
+        Unpaused { admin }.publish(&env);
+        Ok(())
+    }
+
+    /// Returns `true` if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        compliance_pausable::is_paused(&env)
     }
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {

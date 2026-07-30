@@ -4,6 +4,7 @@ members = [
     "contracts/allowlist-token",
     "contracts/denylist-gate",
     "contracts/jurisdiction-flag",
+    "contracts/pausable",
     "examples/denylist-gate-consumer",
     "examples/rwa-token",
 ]
@@ -16,6 +17,7 @@ repository = "https://github.com/stellar-compliance-kit/compliance-primitives"
 
 [workspace.dependencies]
 soroban-sdk = "27.0.0"
+compliance-pausable = { path = "contracts/pausable" }
 
 [profile.release]
 opt-level = "z"

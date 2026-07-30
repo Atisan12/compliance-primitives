@@ -106,3 +106,20 @@ fn test_double_initialize_fails() {
     let result = client.try_initialize(&issuer);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
+
+#[test]
+fn test_is_permitted_jurisdiction_case_sensitive() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+    client.set_jurisdiction(&issuer, &alice, &code);
+
+    // Test with lowercase code in allowed list
+    let allowed = vec![&env, String::from_str(&env, "us")];
+    assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
+
+    // Verify it works with matching case
+    let allowed_matching = vec![&env, String::from_str(&env, "US")];
+    assert!(client.is_permitted_jurisdiction(&alice, &allowed_matching));
+}

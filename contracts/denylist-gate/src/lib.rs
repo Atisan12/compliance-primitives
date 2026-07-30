@@ -20,9 +20,7 @@
 //! example of a token contract wiring `check()` into its `transfer` path.
 #![no_std]
 
-use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env,
-};
+use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec};
 
 /// Storage keys for this contract's state.
 #[contracttype]
@@ -100,18 +98,26 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Remove `address` from the denylist and emit a [`DenyRemove`] event.
-    ///
-    /// # Auth
-    /// Admin-only: `admin` must authorize the call and match the stored admin.
-    ///
-    /// # Returns
-    /// `Ok(())` on success. Removing an address that was never denied (or
-    /// was already removed) still succeeds and emits [`DenyRemove`].
-    ///
-    /// # Errors
-    /// - [`Error::NotInitialized`] if `initialize` has not been called.
-    /// - [`Error::NotAuthorized`] if `admin` is not the stored admin.
+    /// Add every address in `addresses` to the denylist in a single call.
+    /// Admin is checked once; one `DenyAdd` event is emitted per address.
+    /// Useful for bulk sanctions-list syncs where issuing one transaction per
+    /// address would be impractical.
+    pub fn add_multiple_to_denylist(
+        env: Env,
+        admin: Address,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        for address in addresses.iter() {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Denied(address.clone()), &true);
+            DenyAdd { address }.publish(&env);
+        }
+        Ok(())
+    }
+
+    /// Remove `address` from the denylist. Admin-only.
     pub fn remove_from_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
         env.storage().persistent().remove(&DataKey::Denied(address.clone()));

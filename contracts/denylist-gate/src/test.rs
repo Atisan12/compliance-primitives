@@ -126,3 +126,60 @@ fn test_double_initialize_fails() {
     let result = client.try_initialize(&admin);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
+
+#[test]
+fn test_add_multiple_to_denylist_batch_success() {
+    let env = Env::default();
+    let (admin, contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let carol = Address::generate(&env);
+
+    let addresses = vec![&env, alice.clone(), bob.clone(), carol.clone()];
+    client.add_multiple_to_denylist(&admin, &addresses);
+
+    // All three addresses must now be denied.
+    assert!(!client.check(&alice));
+    assert!(!client.check(&bob));
+    assert!(!client.check(&carol));
+
+    // One DenyAdd event per address, in order.
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "deny_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "deny_add"), bob.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "deny_add"), carol.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn test_add_multiple_to_denylist_rejects_non_admin() {
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    let addresses = vec![&env, alice.clone(), bob.clone()];
+    let result = client.try_add_multiple_to_denylist(&impostor, &addresses);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Neither address must have been denied.
+    assert!(client.check(&alice));
+    assert!(client.check(&bob));
+}

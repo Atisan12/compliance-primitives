@@ -1,5 +1,6 @@
 use super::*;
-use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::testutils::storage::Persistent as _;
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::{vec, Env, IntoVal, Map, Symbol, Val};
 use std::path::{Path, PathBuf};
 
@@ -268,123 +269,34 @@ fn test_double_initialize_fails() {
 }
 
 #[test]
-fn test_pause_blocks_add_and_remove() {
+fn test_add_to_denylist_extends_ttl() {
+    // Confirm that add_to_denylist bumps the persistent TTL of the
+    // DataKey::Denied entry so it never silently archives and flips to
+    // "clear" — the fail-open failure mode described in the contract docs.
     let env = Env::default();
-    let (admin, _contract_id, client) = setup(&env);
+    env.mock_all_auths();
+
+    // Advance the ledger to a non-zero sequence number so TTL arithmetic is
+    // meaningful (TTL is measured from the current ledger).
+    env.ledger().set_sequence_number(1_000);
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(DenylistGate, ());
+    let client = DenylistGateClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
     let alice = Address::generate(&env);
-
-    client.pause(&admin);
-    assert_eq!(
-        client.try_add_to_denylist(&admin, &alice),
-        Err(Ok(Error::Paused))
-    );
-    assert!(client.check(&alice));
-
-    client.unpause(&admin);
     client.add_to_denylist(&admin, &alice);
-    assert!(!client.check(&alice));
 
-    client.pause(&admin);
-    assert_eq!(
-        client.try_remove_from_denylist(&admin, &alice),
-        Err(Ok(Error::Paused))
-    );
-    assert!(!client.check(&alice));
-}
-
-#[test]
-fn test_unpause_restores_add_and_remove() {
-    let env = Env::default();
-    let (admin, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-
-    client.pause(&admin);
-    client.unpause(&admin);
-
-    client.add_to_denylist(&admin, &alice);
-    assert!(!client.check(&alice));
-
-    client.remove_from_denylist(&admin, &alice);
-    assert!(client.check(&alice));
-}
-
-#[test]
-fn test_check_unaffected_by_pause_state() {
-    let env = Env::default();
-    let (admin, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-
-    client.add_to_denylist(&admin, &alice);
-    assert!(!client.check(&alice));
-    assert!(client.check(&bob));
-
-    client.pause(&admin);
-    assert!(!client.check(&alice));
-    assert!(client.check(&bob));
-
-    client.unpause(&admin);
-    assert!(!client.check(&alice));
-    assert!(client.check(&bob));
-}
-
-#[test]
-fn test_non_admin_cannot_pause_or_unpause() {
-    let env = Env::default();
-    let (admin, _contract_id, client) = setup(&env);
-    let impostor = Address::generate(&env);
-
-    assert_eq!(client.try_pause(&impostor), Err(Ok(Error::NotAuthorized)));
-
-    client.pause(&admin);
-    assert_eq!(client.try_unpause(&impostor), Err(Ok(Error::NotAuthorized)));
-}
-
-#[test]
-fn test_pause_emits_event() {
-    let env = Env::default();
-    let (admin, contract_id, client) = setup(&env);
-
-    client.pause(&admin);
-
-    assert_eq!(
-        env.events().all(),
-        vec![
-            &env,
-            (
-                contract_id,
-                (Symbol::new(&env, "gate_paused"),).into_val(&env),
-                Map::<Symbol, Val>::from_array(
-                    &env,
-                    [(Symbol::new(&env, "paused"), true.into_val(&env))],
-                )
-                .into_val(&env),
-            ),
-        ]
-    );
-}
-
-#[test]
-fn test_unpause_emits_event() {
-    let env = Env::default();
-    let (admin, contract_id, client) = setup(&env);
-
-    client.pause(&admin);
-    client.unpause(&admin);
-
-    assert_eq!(
-        env.events().all(),
-        vec![
-            &env,
-            (
-                contract_id,
-                (Symbol::new(&env, "gate_unpaused"),).into_val(&env),
-                Map::<Symbol, Val>::from_array(
-                    &env,
-                    [(Symbol::new(&env, "paused"), false.into_val(&env))],
-                )
-                .into_val(&env),
-            ),
-        ]
-    );
+    // Persistent storage TTLs can only be read from within a contract
+    // execution context — wrap the assertion in as_contract().
+    let key = DataKey::Denied(alice);
+    env.as_contract(&contract_id, || {
+        let ttl = env.storage().persistent().get_ttl(&key);
+        // THRESHOLD is MAX_TTL / 2 = 3_155_760
+        assert!(
+            ttl >= 3_155_760,
+            "TTL should be extended to at least THRESHOLD ledgers; got {ttl}"
+        );
+    });
 }

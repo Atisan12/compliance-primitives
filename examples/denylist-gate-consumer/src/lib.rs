@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Stellar Compliance Kit contributors
+// SPDX-License-Identifier: MIT
+// See the LICENSE file in the repository root for the full license text.
+
 //! Reference example: a minimal token contract that composes
 //! `denylist-gate` via cross-contract call. This crate is not meant to be
 //! deployed as-is — it exists to show the calling pattern other issuers'
@@ -13,7 +17,9 @@
 //! a contract you don't own the source of in the same build.
 #![no_std]
 
-use soroban_sdk::{contract, contractclient, contracterror, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{
+    contract, contractclient, contracterror, contractimpl, contracttype, Address, Env,
+};
 
 #[contractclient(name = "GateClient")]
 pub trait DenylistGateInterface {
@@ -54,16 +60,11 @@ impl ExampleToken {
     /// Test/demo helper to fund an address with an initial balance.
     pub fn mint(env: Env, to: Address, amount: i128) {
         let balance = Self::balance(env.clone(), to.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(to), &(balance + amount));
+        env.storage().persistent().set(&DataKey::Balance(to), &(balance + amount));
     }
 
     pub fn balance(env: Env, address: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Balance(address))
-            .unwrap_or(0)
+        env.storage().persistent().get(&DataKey::Balance(address)).unwrap_or(0)
     }
 
     /// Transfer `amount` from `from` to `to`, gated by `denylist-gate`.
@@ -110,12 +111,8 @@ impl ExampleToken {
         }
         let to_balance = Self::balance(env.clone(), to.clone());
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(from.clone()), &(from_balance - amount));
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(to.clone()), &(to_balance + amount));
+        env.storage().persistent().set(&DataKey::Balance(from.clone()), &(from_balance - amount));
+        env.storage().persistent().set(&DataKey::Balance(to.clone()), &(to_balance + amount));
         Ok(())
     }
 }

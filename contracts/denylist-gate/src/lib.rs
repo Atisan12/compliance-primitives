@@ -119,6 +119,14 @@ impl DenylistGate {
         Ok(())
     }
 
+    /// Returns the stored admin address.
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)
+    }
+
     /// Returns `true` if `address` is clear to transact, i.e. it is NOT on
     /// the denylist. This is the function other contracts should call via
     /// cross-contract invocation before proceeding with a transfer.

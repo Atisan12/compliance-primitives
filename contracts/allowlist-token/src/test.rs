@@ -11,9 +11,7 @@ struct MockToken;
 impl MockToken {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "last"), &(from, to, amount));
+        env.storage().instance().set(&Symbol::new(&env, "last"), &(from, to, amount));
     }
 
     pub fn last_transfer(env: Env) -> Option<(Address, Address, i128)> {
@@ -81,11 +79,8 @@ fn test_transfer_blocked_when_recipient_not_allowlisted() {
             (
                 contract_id.clone(),
                 (symbol_short!("blocked"), alice.clone(), bob.clone()).into_val(&env),
-                Map::<Symbol, Val>::from_array(
-                    &env,
-                    [(symbol_short!("amount"), 500i128.into_val(&env))]
-                )
-                .into_val(&env),
+                Map::<Symbol, Val>::from_array(&env, [(symbol_short!("amount"), 500i128.into_val(&env))])
+                    .into_val(&env),
             ),
         ]
     );

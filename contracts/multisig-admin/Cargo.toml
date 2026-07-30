@@ -1,10 +1,10 @@
 [package]
-name = "jurisdiction-flag"
+name = "multisig-admin"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Soroban contract attaching an issuer-controlled jurisdiction code to an address."
+description = "M-of-N multisig contract usable as the admin address for any compliance primitive."
 publish = false
 
 [lib]
@@ -13,11 +13,10 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
-compliance-pausable = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-compliance-pausable = { workspace = true, features = ["testutils"] }
+denylist-gate = { path = "../denylist-gate", features = ["testutils"] }
 
 [features]
-testutils = ["soroban-sdk/testutils", "compliance-pausable/testutils"]
+testutils = ["soroban-sdk/testutils"]

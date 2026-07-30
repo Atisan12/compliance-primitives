@@ -1,14 +1,13 @@
 [package]
-name = "denylist-gate-consumer"
+name = "compliance-pausable"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Example token contract that calls denylist-gate.check() before transferring."
+description = "Shared pausable helper for compliance-primitives contracts. Not a contract itself — no #[contract] macro, no wasm exports."
 publish = false
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
@@ -16,8 +15,6 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-denylist-gate = { path = "../../contracts/denylist-gate", features = ["testutils"] }
-circuit-breaker = { path = "../../contracts/circuit-breaker", features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]

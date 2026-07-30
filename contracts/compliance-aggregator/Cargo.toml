@@ -1,0 +1,23 @@
+[package]
+name = "compliance-aggregator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Batched multi-check aggregator that composes denylist-gate and jurisdiction-flag into a single cross-contract call."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+denylist-gate = { path = "../denylist-gate", features = ["testutils"] }
+jurisdiction-flag = { path = "../jurisdiction-flag", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]

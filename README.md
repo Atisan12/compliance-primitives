@@ -112,6 +112,10 @@ labeled by complexity (`complexity: trivial`, `complexity: medium`,
 `complexity: high`) so you can find something that matches how deep you
 want to go — issues tagged `good first issue` are a good place to start.
 
+## Security
+
+See [SECURITY.md](./SECURITY.md) for how to report a vulnerability.
+
 ## License
 
 [MIT](./LICENSE)

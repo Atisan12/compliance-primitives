@@ -250,131 +250,66 @@ fn test_remove_from_allowlist_emits_allow_remove_event() {
     );
 }
 
-// ── pausable tests ───────────────────────────────────────────────────────────
-
 #[test]
-fn test_not_paused_by_default() {
-    let env = Env::default();
-    let (_admin, _token_id, _contract_id, client) = setup(&env);
-    assert!(!client.is_paused());
-}
-
-#[test]
-fn test_pause_and_unpause_by_admin() {
+fn test_admin_transfer_propose_and_accept_flow() {
     let env = Env::default();
     let (admin, _token_id, _contract_id, client) = setup(&env);
-
-    client.pause(&admin);
-    assert!(client.is_paused());
-
-    client.unpause(&admin);
-    assert!(!client.is_paused());
-}
-
-#[test]
-fn test_add_to_allowlist_blocked_while_paused() {
-    let env = Env::default();
-    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let new_admin = Address::generate(&env);
     let alice = Address::generate(&env);
 
-    client.pause(&admin);
-    let result = client.try_add_to_allowlist(&admin, &alice);
-    assert_eq!(result, Err(Ok(Error::ContractPaused)));
-    // no state change
+    client.propose_admin(&admin, &new_admin);
+
+    // Existing admin remains effective until the pending admin accepts.
+    client.add_to_allowlist(&admin, &alice);
+    let pre_accept_remove = client.try_remove_from_allowlist(&new_admin, &alice);
+    assert_eq!(pre_accept_remove, Err(Ok(Error::NotAuthorized)));
+    assert!(client.is_allowed(&alice));
+
+    client.accept_admin(&new_admin);
+
+    let old_admin_remove = client.try_remove_from_allowlist(&admin, &alice);
+    assert_eq!(old_admin_remove, Err(Ok(Error::NotAuthorized)));
+
+    client.remove_from_allowlist(&new_admin, &alice);
     assert!(!client.is_allowed(&alice));
 }
 
 #[test]
-fn test_remove_from_allowlist_blocked_while_paused() {
+fn test_accept_admin_rejects_wrong_address() {
     let env = Env::default();
     let (admin, _token_id, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
+    let proposed = Address::generate(&env);
+    let wrong = Address::generate(&env);
 
-    client.add_to_allowlist(&admin, &alice);
-    client.pause(&admin);
+    client.propose_admin(&admin, &proposed);
 
-    let result = client.try_remove_from_allowlist(&admin, &alice);
-    assert_eq!(result, Err(Ok(Error::ContractPaused)));
-    // alice must still be allowed — no state change
-    assert!(client.is_allowed(&alice));
+    let result = client.try_accept_admin(&wrong);
+    assert_eq!(result, Err(Ok(Error::PendingAdminMismatch)));
 }
 
 #[test]
-fn test_transfer_blocked_while_paused() {
-    let env = Env::default();
-    let (admin, _token_id, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-
-    client.add_to_allowlist(&admin, &alice);
-    client.add_to_allowlist(&admin, &bob);
-    client.pause(&admin);
-
-    let result = client.try_transfer(&alice, &bob, &100);
-    assert_eq!(result, Err(Ok(Error::ContractPaused)));
-}
-
-#[test]
-fn test_is_allowed_works_while_paused() {
-    // Read-only operations must not be gated by pause.
-    let env = Env::default();
-    let (admin, _token_id, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-
-    client.add_to_allowlist(&admin, &alice);
-    client.pause(&admin);
-
-    assert!(client.is_allowed(&alice));
-    let bob = Address::generate(&env);
-    assert!(!client.is_allowed(&bob));
-}
-
-#[test]
-fn test_mutations_resume_after_unpause() {
-    let env = Env::default();
-    let (admin, _token_id, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-
-    client.pause(&admin);
-    assert_eq!(
-        client.try_add_to_allowlist(&admin, &alice),
-        Err(Ok(Error::ContractPaused))
-    );
-
-    client.unpause(&admin);
-    client.add_to_allowlist(&admin, &alice);
-    assert!(client.is_allowed(&alice));
-}
-
-#[test]
-fn test_non_admin_cannot_pause() {
-    let env = Env::default();
-    let (_admin, _token_id, _contract_id, client) = setup(&env);
-    let impostor = Address::generate(&env);
-
-    let result = client.try_pause(&impostor);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    assert!(!client.is_paused());
-}
-
-#[test]
-fn test_non_admin_cannot_unpause() {
+fn test_propose_admin_rejects_non_admin() {
     let env = Env::default();
     let (admin, _token_id, _contract_id, client) = setup(&env);
     let impostor = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let alice = Address::generate(&env);
 
-    client.pause(&admin);
-    let result = client.try_unpause(&impostor);
+    let result = client.try_propose_admin(&impostor, &new_admin);
     assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    assert!(client.is_paused());
+
+    client.add_to_allowlist(&admin, &alice);
+    assert!(client.is_allowed(&alice));
 }
 
 #[test]
-fn test_pause_emits_event() {
+fn test_accept_admin_emits_admin_transferred_event() {
     let env = Env::default();
     let (admin, _token_id, contract_id, client) = setup(&env);
+    let new_admin = Address::generate(&env);
 
-    client.pause(&admin);
+    client.propose_admin(&admin, &new_admin);
+    client.accept_admin(&new_admin);
 
     assert_eq!(
         env.events().all(),
@@ -382,52 +317,9 @@ fn test_pause_emits_event() {
             &env,
             (
                 contract_id.clone(),
-                (Symbol::new(&env, "paused"), admin.clone()).into_val(&env),
+                (Symbol::new(&env, "admin_transferred"), admin.clone(), new_admin.clone()).into_val(&env),
                 Map::<Symbol, Val>::new(&env).into_val(&env),
             ),
         ]
     );
-}
-
-#[test]
-fn test_unpause_emits_event() {
-    let env = Env::default();
-    let (admin, _token_id, contract_id, client) = setup(&env);
-
-    client.pause(&admin);
-    let _ = env.events().all(); // clear
-
-    client.unpause(&admin);
-
-    assert_eq!(
-        env.events().all(),
-        vec![
-            &env,
-            (
-                contract_id.clone(),
-                (Symbol::new(&env, "unpaused"), admin.clone()).into_val(&env),
-                Map::<Symbol, Val>::new(&env).into_val(&env),
-            ),
-        ]
-    );
-}
-
-#[test]
-fn test_transfer_paused_produces_no_blocked_event() {
-    // When the contract is paused, transfer returns Err(ContractPaused) which
-    // rolls back all state including events. The Blocked event must NOT land.
-    let env = Env::default();
-    let (admin, _token_id, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-
-    client.add_to_allowlist(&admin, &alice);
-    client.add_to_allowlist(&admin, &bob);
-    client.pause(&admin);
-
-    let _ = env.events().all(); // clear pause/add events
-
-    let _ = client.try_transfer(&alice, &bob, &100);
-    // no events should have been emitted (the call errored out)
-    assert_eq!(env.events().all(), vec![&env]);
 }

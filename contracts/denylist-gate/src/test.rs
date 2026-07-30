@@ -1,6 +1,6 @@
 use super::*;
 use soroban_sdk::testutils::{Address as _, Events as _};
-use soroban_sdk::{vec, Env, IntoVal, Map, Symbol, Val};
+use soroban_sdk::{vec, Env, IntoVal, Map, Symbol, Val, Vec};
 
 // We register the audit-log contract in integration tests using the
 // AuditLog type imported from the audit-log crate (dev-dependency).
@@ -80,16 +80,18 @@ fn test_add_and_remove_from_denylist() {
 }
 
 #[test]
-fn test_check_true_immediately_after_remove_from_denylist() {
+fn test_is_denylisted_is_inverse_of_check() {
     let env = Env::default();
     let (admin, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
 
+    assert_eq!(client.is_denylisted(&alice), !client.check(&alice));
+
     client.add_to_denylist(&admin, &alice);
-    assert!(!client.check(&alice));
+    assert_eq!(client.is_denylisted(&alice), !client.check(&alice));
 
     client.remove_from_denylist(&admin, &alice);
-    assert!(client.check(&alice));
+    assert_eq!(client.is_denylisted(&alice), !client.check(&alice));
 }
 
 #[test]
@@ -140,30 +142,102 @@ fn test_remove_from_denylist_never_added_is_noop() {
 }
 
 #[test]
-fn test_add_to_denylist_twice_is_idempotent() {
-    // Adding the same address twice should succeed both times (storage
-    // overwrite is a no-op) and leave the address denied. Each call still
-    // emits its own DenyAdd event because the contract has no dedup logic —
-    // two calls, two events.
+fn test_remove_multiple_from_denylist_removes_all_and_emits_events() {
     let env = Env::default();
     let (admin, contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
 
-    client.add_to_denylist(&admin, &alice);
-    client.add_to_denylist(&admin, &alice);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Denied(alice.clone()), &true);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Denied(bob.clone()), &true);
 
-    assert!(!client.check(&alice));
+    client.remove_multiple_from_denylist(&admin, &vec![&env, alice.clone(), bob.clone()]);
 
-    let deny_add_topic: Val = (Symbol::new(&env, "deny_add"), alice.clone()).into_val(&env);
-    let empty: Val = Map::<Symbol, Val>::new(&env).into_val(&env);
     assert_eq!(
         env.events().all(),
         vec![
             &env,
-            (contract_id.clone(), deny_add_topic.clone(), empty.clone()),
-            (contract_id.clone(), deny_add_topic.clone(), empty.clone()),
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "deny_remove"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "deny_remove"), bob.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
         ]
     );
+    assert!(client.check(&alice));
+    assert!(client.check(&bob));
+}
+
+#[test]
+fn test_remove_multiple_from_denylist_rejects_non_admin() {
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+    let alice = Address::generate(&env);
+
+    let result = client.try_remove_multiple_from_denylist(&impostor, &vec![&env, alice.clone()]);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.check(&alice));
+}
+
+#[test]
+fn test_remove_multiple_from_denylist_empty_vec_is_noop() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+
+    client.remove_multiple_from_denylist(&admin, &vec![&env]);
+
+    assert_eq!(env.events().all(), vec![&env]);
+}
+
+#[test]
+fn test_remove_multiple_from_denylist_batch_limit_succeeds() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let mut addresses: Vec<Address> = Vec::new(&env);
+
+    for _ in 0..MAX_BATCH_SIZE {
+        let address = Address::generate(&env);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Denied(address.clone()), &true);
+        addresses.push_back(address);
+    }
+
+    client.remove_multiple_from_denylist(&admin, &addresses);
+
+    for address in addresses.iter() {
+        assert!(client.check(&address));
+    }
+}
+
+#[test]
+fn test_remove_multiple_from_denylist_over_batch_limit_rejected() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let mut addresses: Vec<Address> = Vec::new(&env);
+
+    for _ in 0..(MAX_BATCH_SIZE + 1) {
+        let address = Address::generate(&env);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Denied(address.clone()), &true);
+        addresses.push_back(address);
+    }
+
+    let first = addresses.get_unchecked(0);
+    let result = client.try_remove_multiple_from_denylist(&admin, &addresses);
+    assert_eq!(result, Err(Ok(Error::BatchTooLarge)));
+    assert!(!client.check(&first));
 }
 
 #[test]

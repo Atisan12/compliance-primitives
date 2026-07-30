@@ -20,10 +20,14 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, Address, Env,
 };
 
+/// Storage keys for this contract's state.
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    /// The admin address, set once in `initialize`. Instance storage.
     Admin,
+    /// Whether a given address is on the denylist. Persistent storage,
+    /// keyed per address.
     Denied(Address),
 }
 

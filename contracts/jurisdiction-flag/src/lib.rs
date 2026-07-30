@@ -41,10 +41,14 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec,
 };
 
+/// Storage keys for this contract's state.
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    /// The issuer address, set once in `initialize`. Instance storage.
     Issuer,
+    /// The jurisdiction code attached to a given address, if any.
+    /// Persistent storage, keyed per address.
     Jurisdiction(Address),
     Paused,
 }

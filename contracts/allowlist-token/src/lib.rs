@@ -25,12 +25,17 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env,
 };
 
+/// Storage keys for this contract's state.
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    /// The admin address, set once in `initialize`. Instance storage.
     Admin,
+    /// The underlying SEP-41 token contract address transfers are
+    /// forwarded to. Instance storage.
     Token,
-    Paused,
+    /// Whether a given address is on the allowlist. Persistent storage,
+    /// keyed per address.
     Allowed(Address),
 }
 

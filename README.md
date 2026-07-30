@@ -35,9 +35,11 @@ one job:
   call to check an address against a permitted-jurisdictions list.
 
 [`/examples/denylist-gate-consumer`](./examples/denylist-gate-consumer) is a
-minimal reference token contract showing the cross-contract calling pattern
-for `denylist-gate` — worth reading before wiring these into your own
-contract.
+minimal reference token showing the cross-contract calling pattern for
+`denylist-gate`. [`/examples/rwa-token`](./examples/rwa-token) composes all
+three primitives in one `transfer` path — see its
+[TESTNET.md](./examples/rwa-token/TESTNET.md) for the testnet reference
+deployment and walkthrough.
 
 ## Quick start
 

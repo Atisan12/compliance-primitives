@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "contracts/allowlist-token",
-    "contracts/compliance-aggregator",
+    "contracts/audit-log",
     "contracts/denylist-gate",
     "contracts/jurisdiction-flag",
     "contracts/pausable",

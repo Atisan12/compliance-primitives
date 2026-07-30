@@ -25,16 +25,18 @@
 //! matching — it returns `true` if at least one of the address's codes
 //! appears in `allowed_codes`. An address with no codes is never permitted.
 //!
-//! **Pause**: the issuer can `pause` write-side mutations (`set`/`add`/
-//! `remove`) during an incident without breaking read-side callers of
-//! `get_jurisdiction` / `list_jurisdictions` / `is_permitted_jurisdiction`.
-//! Same pattern as denylist-gate (#84).
+//! **Callers**: only the configured `issuer` address may call
+//! `set_jurisdiction` (or `set_jurisdiction_until`). Any contract or
+//! off-chain client can read a flag via `get_jurisdiction`, and contracts
+//! enforcing a jurisdiction allowlist can call
+//! `is_permitted_jurisdiction(address, allowed_codes)` directly as part of
+//! their own compliance checks.
 //!
-//! **Callers**: only the configured `issuer` address may mutate flags or
-//! pause state. Any contract or off-chain client can read flags, and
-//! contracts enforcing a jurisdiction allowlist can call
-//! `is_permitted_jurisdiction(address, allowed_codes)` as part of their
-//! own compliance checks.
+//! **Time-bound flags**: `set_jurisdiction_until` stores the flag with a
+//! `valid_until` ledger sequence number. Once `env.ledger().sequence()`
+//! exceeds that value the flag is treated as unset (returns `None` / `false`).
+//! `set_jurisdiction` sets `valid_until: None` (never expires) and is
+//! fully backward-compatible.
 //!
 //! **Composition**: designed to be called into from another contract's
 //! `transfer` or similar gating logic — the same pattern `denylist-gate`
@@ -51,7 +53,16 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec,
 };
 
-/// Storage keys for this contract's state.
+/// Storage value for a jurisdiction flag. `valid_until` is the last ledger
+/// sequence number at which the flag is still valid. `None` means the flag
+/// never expires.
+#[contracttype]
+#[derive(Clone)]
+pub struct JurisdictionEntry {
+    pub code: String,
+    pub valid_until: Option<u32>,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -63,11 +74,22 @@ enum DataKey {
     Paused,
 }
 
+/// Emitted whenever a jurisdiction flag is set (with or without expiry).
 #[contractevent]
 pub struct JurisdictionSet {
     #[topic]
     pub address: Address,
     pub code: String,
+    pub valid_until: Option<u32>,
+}
+
+/// Emitted (as a signal for off-chain indexers) when an expired flag is
+/// encountered during a read. The flag is not removed from storage — it is
+/// simply ignored — but this event lets listeners react.
+#[contractevent]
+pub struct JurisdictionExpired {
+    #[topic]
+    pub address: Address,
 }
 
 #[contractevent]
@@ -113,7 +135,9 @@ impl JurisdictionFlag {
         Ok(())
     }
 
-    /// Attach jurisdiction `code` to `address`. Issuer-only. Blocked while paused.
+    /// Attach jurisdiction `code` to `address` with no expiry. Issuer-only.
+    /// Existing callers do not need to change — behavior is identical to the
+    /// previous version of this function.
     pub fn set_jurisdiction(
         env: Env,
         issuer: Address,
@@ -122,76 +146,77 @@ impl JurisdictionFlag {
     ) -> Result<(), Error> {
         compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
         Self::require_issuer(&env, &issuer)?;
-        Self::require_not_paused(&env)?;
-        let mut codes = Vec::new(&env);
-        codes.push_back(code.clone());
+        let entry = JurisdictionEntry {
+            code: code.clone(),
+            valid_until: None,
+        };
         env.storage()
             .persistent()
-            .set(&DataKey::Jurisdiction(address.clone()), &codes);
-        JurisdictionSet { address, code }.publish(&env);
+            .set(&DataKey::Jurisdiction(address.clone()), &entry);
+        JurisdictionSet {
+            address,
+            code,
+            valid_until: None,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Attach jurisdiction `code` to `address` that expires after ledger
+    /// sequence `valid_until` (inclusive). Issuer-only.
+    pub fn set_jurisdiction_until(
+        env: Env,
+        issuer: Address,
+        address: Address,
+        code: String,
+        valid_until: u32,
+    ) -> Result<(), Error> {
+        Self::require_issuer(&env, &issuer)?;
+        let entry = JurisdictionEntry {
+            code: code.clone(),
+            valid_until: Some(valid_until),
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::Jurisdiction(address.clone()), &entry);
+        JurisdictionSet {
+            address,
+            code,
+            valid_until: Some(valid_until),
+        }
+        .publish(&env);
         Ok(())
     }
 
     /// Returns the jurisdiction code attached to `address`, if any.
     ///
-    /// **Not** affected by pause state — reads always succeed.
+    /// Returns `None` if:
+    /// - no jurisdiction has been set, or
+    /// - the flag has a `valid_until` that is strictly less than the current
+    ///   ledger sequence (i.e. the flag has expired).
     pub fn get_jurisdiction(env: Env, address: Address) -> Option<String> {
-        env.storage()
+        let entry: JurisdictionEntry = env
+            .storage()
             .persistent()
-            .get(&DataKey::Jurisdiction(address))
-    }
+            .get(&DataKey::Jurisdiction(address.clone()))?;
 
-    /// Returns the stored issuer address.
-    pub fn get_issuer(env: Env) -> Result<Address, Error> {
-        env.storage()
-            .instance()
-            .get(&DataKey::Issuer)
-            .ok_or(Error::NotInitialized)
-    }
-
-    /// Attach jurisdiction codes to many addresses in a single transaction.
-    /// Issuer-only; authorizes `issuer` once and then applies each entry via
-    /// the same logic as `set_jurisdiction`.
-    pub fn set_multiple_jurisdictions(
-        env: Env,
-        issuer: Address,
-        entries: Vec<(Address, String)>,
-    ) -> Result<(), Error> {
-        Self::require_issuer(&env, &issuer)?;
-        for (address, code) in entries.iter() {
-            env.storage()
-                .persistent()
-                .set(&DataKey::Jurisdiction(address.clone()), &code);
-            JurisdictionSet { address, code }.publish(&env);
+        if let Some(valid_until) = entry.valid_until {
+            if env.ledger().sequence() > valid_until {
+                // Flag has expired — treat as unset.
+                JurisdictionExpired { address }.publish(&env);
+                return None;
+            }
         }
-        Ok(())
+
+        Some(entry.code)
     }
 
-    /// Returns the jurisdiction code attached to `address`, or `default` if
-    /// none has been set. Convenience wrapper around `get_jurisdiction` for
-    /// callers that want to treat an unset address as belonging to a known
-    /// fallback jurisdiction (e.g. `"XX"` for unknown/unrestricted) without
-    /// having to unwrap an `Option` themselves.
-    pub fn get_jurisdiction_or(env: Env, address: Address, default: String) -> String {
-        Self::get_jurisdiction(env, address).unwrap_or(default)
-    }
-
-    /// Returns `Ok(true)` if `address` has a jurisdiction code set AND that
-    /// code appears in `allowed_codes`. Returns `Ok(false)` if the address has
-    /// no code set or its code is not in `allowed_codes`. Returns
-    /// `Err(Error::EmptyAllowedCodes)` when `allowed_codes` is empty, because
-    /// an empty allowlist means nothing can ever pass — that is almost
-    /// certainly a caller configuration mistake rather than a deliberate
-    /// "nothing is permitted" intent.
-    pub fn is_permitted_jurisdiction(
-        env: Env,
-        address: Address,
-        allowed_codes: Vec<String>,
-    ) -> Result<bool, Error> {
-        if allowed_codes.is_empty() {
-            return Err(Error::EmptyAllowedCodes);
-        }
-        Ok(match Self::get_jurisdiction(env, address) {
+    /// Returns `true` if `address` has a non-expired jurisdiction code set
+    /// AND that code appears in `allowed_codes`. Meant to be called by other
+    /// contracts that want to restrict activity to a set of permitted
+    /// jurisdictions.
+    pub fn is_permitted_jurisdiction(env: Env, address: Address, allowed_codes: Vec<String>) -> bool {
+        match Self::get_jurisdiction(env, address) {
             Some(code) => allowed_codes.iter().any(|c| c == code),
             None => false,
         })

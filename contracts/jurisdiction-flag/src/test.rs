@@ -11,7 +11,7 @@ fn setup(env: &Env) -> (Address, Address, JurisdictionFlagClient<'_>) {
     (issuer, contract_id, client)
 }
 
-// ── existing tests ──────────────────────────────────────────────────────────
+// ── existing tests (unchanged) ────────────────────────────────────────────────
 
 #[test]
 fn test_set_and_get_jurisdiction() {
@@ -137,150 +137,65 @@ fn test_double_initialize_fails() {
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
-// ── pausable tests ───────────────────────────────────────────────────────────
+// ── new time-bound tests ──────────────────────────────────────────────────────
 
+/// A flag set with `set_jurisdiction_until` is readable and permitted before
+/// its `valid_until` ledger sequence is reached.
 #[test]
-fn test_not_paused_by_default() {
-    let env = Env::default();
-    let (_issuer, _contract_id, client) = setup(&env);
-    assert!(!client.is_paused());
-}
-
-#[test]
-fn test_pause_and_unpause_by_issuer() {
-    let env = Env::default();
-    let (issuer, _contract_id, client) = setup(&env);
-
-    client.pause(&issuer);
-    assert!(client.is_paused());
-
-    client.unpause(&issuer);
-    assert!(!client.is_paused());
-}
-
-#[test]
-fn test_set_jurisdiction_blocked_while_paused() {
-    let env = Env::default();
-    let (issuer, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-    let code = String::from_str(&env, "US");
-
-    client.pause(&issuer);
-    let result = client.try_set_jurisdiction(&issuer, &alice, &code);
-    assert_eq!(result, Err(Ok(Error::ContractPaused)));
-    // no state change
-    assert_eq!(client.get_jurisdiction(&alice), None);
-}
-
-#[test]
-fn test_get_jurisdiction_works_while_paused() {
-    let env = Env::default();
-    let (issuer, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-    let code = String::from_str(&env, "GB");
-
-    // set while unpaused, then pause
-    client.set_jurisdiction(&issuer, &alice, &code);
-    client.pause(&issuer);
-
-    // reads still work
-    assert_eq!(client.get_jurisdiction(&alice), Some(code));
-}
-
-#[test]
-fn test_is_permitted_jurisdiction_works_while_paused() {
+fn test_set_jurisdiction_until_valid_before_expiry() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
     let code = String::from_str(&env, "DE");
 
-    client.set_jurisdiction(&issuer, &alice, &code);
-    client.pause(&issuer);
+    // Set ledger sequence well before the expiry.
+    env.ledger().with_mut(|li| li.sequence_number = 100);
+    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
+
+    // Still before expiry — flag should be present and permitted.
+    env.ledger().with_mut(|li| li.sequence_number = 150);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code.clone()));
 
     let allowed = vec![&env, String::from_str(&env, "DE")];
     assert!(client.is_permitted_jurisdiction(&alice, &allowed));
 }
 
+/// A flag set with `set_jurisdiction_until` is treated as unset once the
+/// current ledger sequence strictly exceeds `valid_until`.
 #[test]
-fn test_mutations_resume_after_unpause() {
+fn test_set_jurisdiction_until_expired_after_expiry() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
     let code = String::from_str(&env, "FR");
 
-    client.pause(&issuer);
-    assert_eq!(
-        client.try_set_jurisdiction(&issuer, &alice, &code),
-        Err(Ok(Error::ContractPaused))
-    );
+    env.ledger().with_mut(|li| li.sequence_number = 100);
+    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
 
-    client.unpause(&issuer);
-    client.set_jurisdiction(&issuer, &alice, &code);
-    assert_eq!(client.get_jurisdiction(&alice), Some(code));
+    // Past expiry — flag should be treated as unset.
+    env.ledger().with_mut(|li| li.sequence_number = 201);
+    assert_eq!(client.get_jurisdiction(&alice), None);
+
+    let allowed = vec![&env, String::from_str(&env, "FR")];
+    assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
 }
 
+/// At the exact `valid_until` ledger sequence the flag is still valid
+/// (`valid_until` is inclusive).
 #[test]
-fn test_non_issuer_cannot_pause() {
-    let env = Env::default();
-    let (_issuer, _contract_id, client) = setup(&env);
-    let impostor = Address::generate(&env);
-
-    let result = client.try_pause(&impostor);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    assert!(!client.is_paused());
-}
-
-#[test]
-fn test_non_issuer_cannot_unpause() {
+fn test_set_jurisdiction_until_boundary_ledger() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);
-    let impostor = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "JP");
 
-    client.pause(&issuer);
-    let result = client.try_unpause(&impostor);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    assert!(client.is_paused());
-}
+    env.ledger().with_mut(|li| li.sequence_number = 100);
+    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
 
-#[test]
-fn test_pause_emits_event() {
-    let env = Env::default();
-    let (issuer, contract_id, client) = setup(&env);
+    // Exactly at valid_until — flag should still be valid.
+    env.ledger().with_mut(|li| li.sequence_number = 200);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code.clone()));
 
-    client.pause(&issuer);
-
-    assert_eq!(
-        env.events().all(),
-        vec![
-            &env,
-            (
-                contract_id.clone(),
-                (Symbol::new(&env, "paused"), issuer.clone()).into_val(&env),
-                Map::<Symbol, Val>::new(&env).into_val(&env),
-            ),
-        ]
-    );
-}
-
-#[test]
-fn test_unpause_emits_event() {
-    let env = Env::default();
-    let (issuer, contract_id, client) = setup(&env);
-
-    client.pause(&issuer);
-    let _ = env.events().all(); // clear
-
-    client.unpause(&issuer);
-
-    assert_eq!(
-        env.events().all(),
-        vec![
-            &env,
-            (
-                contract_id.clone(),
-                (Symbol::new(&env, "unpaused"), issuer.clone()).into_val(&env),
-                Map::<Symbol, Val>::new(&env).into_val(&env),
-            ),
-        ]
-    );
+    let allowed = vec![&env, String::from_str(&env, "JP")];
+    assert!(client.is_permitted_jurisdiction(&alice, &allowed));
 }

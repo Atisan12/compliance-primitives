@@ -1,5 +1,9 @@
-//! `jurisdiction-flag` is a `#![no_std]` Soroban contract that attaches one or
-//! more jurisdiction codes (e.g. ISO 3166-1 alpha-2 country codes) to an
+// Copyright (c) 2026 Stellar Compliance Kit contributors
+// SPDX-License-Identifier: MIT
+// See the LICENSE file in the repository root for the full license text.
+
+//! `jurisdiction-flag` is a `#![no_std]` Soroban contract that attaches a
+//! jurisdiction code (e.g. an ISO 3166-1 alpha-2 country code) to an
 //! address.
 //!
 //! **Purpose**: let an issuer record which jurisdiction(s) an address has

@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Stellar Compliance Kit contributors
+// SPDX-License-Identifier: MIT
+// See the LICENSE file in the repository root for the full license text.
+
 //! `denylist-gate` is a `#![no_std]` Soroban contract that maintains a
 //! standalone on-chain denylist.
 //!
@@ -115,13 +119,29 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Returns whether `address` is clear to transact.
+    /// Returns `true` if `address` is clear to transact, i.e. it is NOT on
+    /// the denylist. This is the function other contracts should call via
+    /// cross-contract invocation before proceeding with a transfer.
     ///
-    /// Returns `true` when `address` is **not** on the denylist, and `false`
-    /// when it is. Addresses that have never been added (never touched) are
-    /// treated as clear by default — this function returns `true` for them,
-    /// not `false`. No authorization is required; other contracts should call
-    /// this via cross-contract invocation before proceeding with a transfer.
+    /// # Examples
+    ///
+    /// ```
+    /// use denylist_gate::{DenylistGate, DenylistGateClient};
+    /// use soroban_sdk::{testutils::Address as _, Address, Env};
+    ///
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let admin = Address::generate(&env);
+    /// let contract_id = env.register(DenylistGate, ());
+    /// let client = DenylistGateClient::new(&env, &contract_id);
+    /// client.initialize(&admin);
+    ///
+    /// let alice = Address::generate(&env);
+    /// assert!(client.check(&alice));
+    ///
+    /// client.add_to_denylist(&admin, &alice);
+    /// assert!(!client.check(&alice));
+    /// ```
     pub fn check(env: Env, address: Address) -> bool {
         !env.storage()
             .persistent()

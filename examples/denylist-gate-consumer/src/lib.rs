@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Stellar Compliance Kit contributors
+// SPDX-License-Identifier: MIT
+// See the LICENSE file in the repository root for the full license text.
+
 //! Reference example: a minimal token contract that composes
 //! `denylist-gate` via cross-contract call. This crate is not meant to be
 //! deployed as-is — it exists to show the calling pattern other issuers'

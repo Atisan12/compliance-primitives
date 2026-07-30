@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Stellar Compliance Kit contributors
+// SPDX-License-Identifier: MIT
+// See the LICENSE file in the repository root for the full license text.
+
 //! `allowlist-token` is a `#![no_std]` Soroban contract that wraps an existing
 //! SEP-41 token and only permits `transfer` calls between two addresses that
 //! are both present on an on-chain allowlist.

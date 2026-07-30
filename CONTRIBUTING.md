@@ -19,10 +19,13 @@ contribution are also tagged `good first issue`.
    won't be merged.
 5. **Before submitting a PR, run:**
    ```sh
-   cargo test --workspace
-   cargo clippy --workspace --all-targets -- -D warnings
+   make test
+   make lint
    ```
-   Both must pass locally — the same checks run in CI on every PR.
+   (equivalent to `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`,
+   and `cargo fmt --all -- --check`). Both must pass locally — the same test and clippy checks run
+   in CI on every PR. `make build` runs the same wasm build CI checks. See the
+   [Makefile](./Makefile) for the full list of targets.
 6. **Open a pull request** against `main`, referencing the issue it closes
    (e.g. `Closes #12`). Describe what changed and why.
 

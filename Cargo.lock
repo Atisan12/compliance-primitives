@@ -293,6 +293,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compliance-aggregator"
+version = "0.1.0"
+dependencies = [
+ "denylist-gate",
+ "jurisdiction-flag",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -484,6 +493,14 @@ dependencies = [
 
 [[package]]
 name = "denylist-gate-consumer"
+version = "0.1.0"
+dependencies = [
+ "denylist-gate",
+ "soroban-sdk",
+]
+
+[[package]]
+name = "denylist-gate-sep41"
 version = "0.1.0"
 dependencies = [
  "denylist-gate",
@@ -921,6 +938,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "jurisdiction-flag-consumer"
+version = "0.1.0"
+dependencies = [
+ "jurisdiction-flag",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "k256"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1187,6 +1212,16 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rwa-token"
+version = "0.1.0"
+dependencies = [
+ "allowlist-token",
+ "denylist-gate",
+ "jurisdiction-flag",
+ "soroban-sdk",
+]
 
 [[package]]
 name = "schemars"

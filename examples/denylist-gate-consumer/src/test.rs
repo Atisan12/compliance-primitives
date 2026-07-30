@@ -1,24 +1,29 @@
 use super::*;
+use circuit_breaker::{CircuitBreaker, CircuitBreakerClient};
 use denylist_gate::{DenylistGate, DenylistGateClient};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Env;
 
-fn setup(env: &Env) -> (Address, Address, ExampleTokenClient<'_>) {
+fn setup(env: &Env) -> (Address, Address, Address, Address, ExampleTokenClient<'_>) {
     env.mock_all_auths();
     let gate_admin = Address::generate(env);
     let gate_id = env.register(DenylistGate, ());
     DenylistGateClient::new(env, &gate_id).initialize(&gate_admin);
 
+    let breaker_admin = Address::generate(env);
+    let breaker_id = env.register(CircuitBreaker, ());
+    CircuitBreakerClient::new(env, &breaker_id).initialize(&breaker_admin);
+
     let token_id = env.register(ExampleToken, ());
     let client = ExampleTokenClient::new(env, &token_id);
-    client.initialize(&gate_id);
-    (gate_admin, gate_id, client)
+    client.initialize(&gate_id, &breaker_id);
+    (gate_admin, gate_id, breaker_admin, breaker_id, client)
 }
 
 #[test]
 fn test_transfer_succeeds_when_both_parties_clear() {
     let env = Env::default();
-    let (_gate_admin, _gate_id, client) = setup(&env);
+    let (_gate_admin, _gate_id, _breaker_admin, _breaker_id, client) = setup(&env);
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
 
@@ -32,7 +37,7 @@ fn test_transfer_succeeds_when_both_parties_clear() {
 #[test]
 fn test_transfer_blocked_when_sender_denied() {
     let env = Env::default();
-    let (gate_admin, gate_id, client) = setup(&env);
+    let (gate_admin, gate_id, _breaker_admin, _breaker_id, client) = setup(&env);
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
 

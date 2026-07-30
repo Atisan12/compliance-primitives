@@ -2,9 +2,12 @@
 resolver = "2"
 members = [
     "contracts/allowlist-token",
+    "contracts/audit-log",
     "contracts/denylist-gate",
     "contracts/jurisdiction-flag",
+    "contracts/circuit-breaker",
     "examples/denylist-gate-consumer",
+    "examples/denylist-gate-sep41",
 ]
 
 [workspace.package]
@@ -15,6 +18,7 @@ repository = "https://github.com/stellar-compliance-kit/compliance-primitives"
 
 [workspace.dependencies]
 soroban-sdk = "27.0.0"
+compliance-pausable = { path = "contracts/pausable" }
 
 [profile.release]
 opt-level = "z"

@@ -47,8 +47,12 @@ fn test_is_permitted_jurisdiction_true_when_code_in_list() {
     let code = String::from_str(&env, "US");
     client.set_jurisdiction(&issuer, &alice, &code);
 
-    let allowed = vec![&env, String::from_str(&env, "CA"), String::from_str(&env, "US")];
-    assert!(client.is_permitted_jurisdiction(&alice, &allowed));
+    let allowed = vec![
+        &env,
+        String::from_str(&env, "CA"),
+        String::from_str(&env, "US"),
+    ];
+    assert_eq!(client.is_permitted_jurisdiction(&alice, &allowed), true);
 }
 
 #[test]
@@ -57,11 +61,11 @@ fn test_is_permitted_jurisdiction_false_when_no_jurisdiction_set() {
     let (_issuer, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
     let allowed = vec![&env, String::from_str(&env, "US")];
-    assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
+    assert_eq!(client.is_permitted_jurisdiction(&alice, &allowed), false);
 }
 
 #[test]
-fn test_is_permitted_jurisdiction_false_with_empty_allowed_list() {
+fn test_is_permitted_jurisdiction_errors_with_empty_allowed_list() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
@@ -69,17 +73,19 @@ fn test_is_permitted_jurisdiction_false_with_empty_allowed_list() {
     client.set_jurisdiction(&issuer, &alice, &code);
 
     let allowed: Vec<String> = vec![&env];
-    assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
+    let result = client.try_is_permitted_jurisdiction(&alice, &allowed);
+    assert_eq!(result, Err(Ok(Error::EmptyAllowedCodes)));
 }
 
 #[test]
-fn test_is_permitted_jurisdiction_false_when_no_jurisdiction_and_empty_allowed_list() {
+fn test_is_permitted_jurisdiction_errors_when_no_jurisdiction_and_empty_allowed_list() {
     let env = Env::default();
     let (_issuer, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
 
     let allowed: Vec<String> = vec![&env];
-    assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
+    let result = client.try_is_permitted_jurisdiction(&alice, &allowed);
+    assert_eq!(result, Err(Ok(Error::EmptyAllowedCodes)));
 }
 
 #[test]

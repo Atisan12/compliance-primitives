@@ -1,6 +1,6 @@
 use super::*;
 use soroban_sdk::testutils::{Address as _, Events as _};
-use soroban_sdk::{vec, Env};
+use soroban_sdk::{vec, Env, IntoVal, Map, Symbol, Val};
 
 fn setup(env: &Env) -> (Address, Address, JurisdictionFlagClient<'_>) {
     env.mock_all_auths();
@@ -45,11 +45,7 @@ fn test_is_permitted_jurisdiction_true_when_code_in_list() {
     let code = String::from_str(&env, "US");
     client.set_jurisdiction(&issuer, &alice, &code);
 
-    let allowed = vec![
-        &env,
-        String::from_str(&env, "CA"),
-        String::from_str(&env, "US"),
-    ];
+    let allowed = vec![&env, String::from_str(&env, "CA"), String::from_str(&env, "US")];
     assert!(client.is_permitted_jurisdiction(&alice, &allowed));
 }
 
@@ -100,9 +96,60 @@ fn test_set_jurisdiction_fails_before_initialize() {
 }
 
 #[test]
+fn test_set_jurisdiction_emits_jurisdiction_set_event() {
+    let env = Env::default();
+    let (issuer, contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+
+    client.set_jurisdiction(&issuer, &alice, &code);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "jurisdiction_set"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::from_array(
+                    &env,
+                    [(Symbol::new(&env, "code"), code.clone().into_val(&env))]
+                )
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
 fn test_double_initialize_fails() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);
     let result = client.try_initialize(&issuer);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}
+
+#[test]
+fn test_get_jurisdiction_or_returns_stored_code_when_set() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    let code = String::from_str(&env, "DE");
+    client.set_jurisdiction(&issuer, &alice, &code);
+
+    let default = String::from_str(&env, "XX");
+    // Should return the real code, not the default.
+    assert_eq!(client.get_jurisdiction_or(&alice, &default), code);
+}
+
+#[test]
+fn test_get_jurisdiction_or_returns_default_when_not_set() {
+    let env = Env::default();
+    let (_issuer, _contract_id, client) = setup(&env);
+    let bob = Address::generate(&env);
+
+    let default = String::from_str(&env, "XX");
+    // No jurisdiction set for bob — should return the caller-supplied default.
+    assert_eq!(client.get_jurisdiction_or(&bob, &default), default);
 }

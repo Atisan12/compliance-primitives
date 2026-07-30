@@ -33,6 +33,19 @@ fn test_add_and_remove_from_denylist() {
 }
 
 #[test]
+fn test_check_true_immediately_after_remove_from_denylist() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+
+    client.remove_from_denylist(&admin, &alice);
+    assert!(client.check(&alice));
+}
+
+#[test]
 fn test_add_to_denylist_rejects_non_admin() {
     let env = Env::default();
     let (_admin, _contract_id, client) = setup(&env);
@@ -77,6 +90,33 @@ fn test_remove_from_denylist_never_added_is_noop() {
         ]
     );
     assert!(client.check(&never_added));
+}
+
+#[test]
+fn test_add_to_denylist_twice_is_idempotent() {
+    // Adding the same address twice should succeed both times (storage
+    // overwrite is a no-op) and leave the address denied. Each call still
+    // emits its own DenyAdd event because the contract has no dedup logic —
+    // two calls, two events.
+    let env = Env::default();
+    let (admin, contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    client.add_to_denylist(&admin, &alice);
+    client.add_to_denylist(&admin, &alice);
+
+    assert!(!client.check(&alice));
+
+    let deny_add_topic: Val = (Symbol::new(&env, "deny_add"), alice.clone()).into_val(&env);
+    let empty: Val = Map::<Symbol, Val>::new(&env).into_val(&env);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (contract_id.clone(), deny_add_topic.clone(), empty.clone()),
+            (contract_id.clone(), deny_add_topic.clone(), empty.clone()),
+        ]
+    );
 }
 
 #[test]

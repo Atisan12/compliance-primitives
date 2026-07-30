@@ -1,0 +1,8 @@
+# Code owners for compliance-primitives
+#
+# TODO(maintainer): replace the handle below with the actual GitHub
+# handle(s)/team that should be default reviewers for this repo. Set here
+# as a placeholder so the catch-all rule is valid immediately.
+# See: https://docs.github.com/en/repository/collaborators-and-teams/about-code-owners
+
+* @No-bodyq

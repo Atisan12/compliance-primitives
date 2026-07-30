@@ -1,0 +1,8 @@
+# Preconfigures the wasm32v1-none target used to build these contracts to
+# wasm (the same target the CI wasm-build job and `stellar contract build`
+# use). This does not install the target itself — that still comes from
+# rustup, either automatically via `targets` in rust-toolchain.toml or via
+# `rustup target add wasm32v1-none` — it just gives a short alias for the
+# build command so you don't have to remember the full invocation.
+[alias]
+build-wasm = "build --workspace --target wasm32v1-none --release"

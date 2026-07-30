@@ -12,9 +12,7 @@ struct MockToken;
 impl MockToken {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "last"), &(from, to, amount));
+        env.storage().instance().set(&Symbol::new(&env, "last"), &(from, to, amount));
     }
 
     pub fn last_transfer(env: Env) -> Option<(Address, Address, i128)> {
@@ -150,12 +148,14 @@ fn test_transfer_blocked_when_recipient_not_allowlisted() {
             &env,
             (
                 contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
                 (symbol_short!("blocked"), alice.clone(), bob.clone()).into_val(&env),
-                Map::<Symbol, Val>::from_array(
-                    &env,
-                    [(symbol_short!("amount"), 500i128.into_val(&env))]
-                )
-                .into_val(&env),
+                Map::<Symbol, Val>::from_array(&env, [(symbol_short!("amount"), 500i128.into_val(&env))])
+                    .into_val(&env),
             ),
         ]
     );
@@ -227,6 +227,24 @@ fn test_is_allowed_false_before_initialize() {
 }
 
 #[test]
+fn test_get_admin_returns_initialized_admin() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+
+    assert_eq!(client.get_admin(), admin);
+}
+
+#[test]
+fn test_get_admin_fails_before_initialize() {
+    let env = Env::default();
+    let contract_id = env.register(AllowlistToken, ());
+    let client = AllowlistTokenClient::new(&env, &contract_id);
+
+    let result = client.try_get_admin();
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
+
+#[test]
 fn test_double_initialize_fails() {
     let env = Env::default();
     let (admin, token_id, _contract_id, client) = setup(&env);
@@ -270,7 +288,86 @@ fn test_remove_from_allowlist_emits_allow_remove_event() {
             &env,
             (
                 contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
                 (Symbol::new(&env, "allow_remove"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn test_admin_transfer_propose_and_accept_flow() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let new_admin = Address::generate(&env);
+    let alice = Address::generate(&env);
+
+    client.propose_admin(&admin, &new_admin);
+
+    // Existing admin remains effective until the pending admin accepts.
+    client.add_to_allowlist(&admin, &alice);
+    let pre_accept_remove = client.try_remove_from_allowlist(&new_admin, &alice);
+    assert_eq!(pre_accept_remove, Err(Ok(Error::NotAuthorized)));
+    assert!(client.is_allowed(&alice));
+
+    client.accept_admin(&new_admin);
+
+    let old_admin_remove = client.try_remove_from_allowlist(&admin, &alice);
+    assert_eq!(old_admin_remove, Err(Ok(Error::NotAuthorized)));
+
+    client.remove_from_allowlist(&new_admin, &alice);
+    assert!(!client.is_allowed(&alice));
+}
+
+#[test]
+fn test_accept_admin_rejects_wrong_address() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let proposed = Address::generate(&env);
+    let wrong = Address::generate(&env);
+
+    client.propose_admin(&admin, &proposed);
+
+    let result = client.try_accept_admin(&wrong);
+    assert_eq!(result, Err(Ok(Error::PendingAdminMismatch)));
+}
+
+#[test]
+fn test_propose_admin_rejects_non_admin() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let alice = Address::generate(&env);
+
+    let result = client.try_propose_admin(&impostor, &new_admin);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    client.add_to_allowlist(&admin, &alice);
+    assert!(client.is_allowed(&alice));
+}
+
+#[test]
+fn test_accept_admin_emits_admin_transferred_event() {
+    let env = Env::default();
+    let (admin, _token_id, contract_id, client) = setup(&env);
+    let new_admin = Address::generate(&env);
+
+    client.propose_admin(&admin, &new_admin);
+    client.accept_admin(&new_admin);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "admin_transferred"), admin.clone(), new_admin.clone()).into_val(&env),
                 Map::<Symbol, Val>::new(&env).into_val(&env),
             ),
         ]

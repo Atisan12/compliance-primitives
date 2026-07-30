@@ -1,6 +1,6 @@
 use super::*;
 use soroban_sdk::testutils::{Address as _, Events as _};
-use soroban_sdk::{contract, contractimpl, symbol_short, vec, Env, IntoVal, Map, Symbol, Val};
+use soroban_sdk::{contract, contractimpl, symbol_short, vec, Env, IntoVal, Map, Symbol, Val, Vec};
 
 /// A minimal token double used only by these tests, so `allowlist-token`'s
 /// unit tests don't depend on any particular real SEP-41 implementation.
@@ -11,9 +11,7 @@ struct MockToken;
 impl MockToken {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "last"), &(from, to, amount));
+        env.storage().instance().set(&Symbol::new(&env, "last"), &(from, to, amount));
     }
 
     pub fn last_transfer(env: Env) -> Option<(Address, Address, i128)> {
@@ -63,6 +61,74 @@ fn test_transfer_forwards_to_underlying_token_when_both_allowlisted() {
 }
 
 #[test]
+fn test_add_multiple_to_allowlist_adds_each_address_and_emits_one_event_per_address() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let carol = Address::generate(&env);
+    let addresses: Vec<Address> = vec![&env, alice.clone(), bob.clone(), carol.clone()];
+
+    client.add_multiple_to_allowlist(&admin, &addresses);
+
+    assert!(client.is_allowed(&alice));
+    assert!(client.is_allowed(&bob));
+    assert!(client.is_allowed(&carol));
+}
+
+#[test]
+fn test_add_multiple_to_allowlist_rejects_non_admin() {
+    let env = Env::default();
+    let (_admin, _token_id, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let addresses: Vec<Address> = vec![&env, alice.clone()];
+
+    let result = client.try_add_multiple_to_allowlist(&impostor, &addresses);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert!(!client.is_allowed(&alice));
+}
+
+#[test]
+fn test_pause_and_unpause_require_admin() {
+    let env = Env::default();
+    let (admin, _token_id, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+
+    let pause_result = client.try_pause(&impostor);
+    assert_eq!(pause_result, Err(Ok(Error::NotAuthorized)));
+    assert!(!client.is_paused());
+
+    client.pause(&admin);
+    assert!(client.is_paused());
+
+    let unpause_result = client.try_unpause(&impostor);
+    assert_eq!(unpause_result, Err(Ok(Error::NotAuthorized)));
+    assert!(client.is_paused());
+
+    client.unpause(&admin);
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_transfer_returns_false_and_does_not_forward_when_paused() {
+    let env = Env::default();
+    let (admin, token_id, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    client.add_to_allowlist(&admin, &alice);
+    client.add_to_allowlist(&admin, &bob);
+    client.pause(&admin);
+
+    let ok = client.transfer(&alice, &bob, &500);
+    assert!(!ok);
+
+    let token_client = MockTokenClient::new(&env, &token_id);
+    assert!(token_client.last_transfer().is_none());
+}
+
+#[test]
 fn test_transfer_blocked_when_recipient_not_allowlisted() {
     let env = Env::default();
     let (admin, _token_id, contract_id, client) = setup(&env);
@@ -80,12 +146,14 @@ fn test_transfer_blocked_when_recipient_not_allowlisted() {
             &env,
             (
                 contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
                 (symbol_short!("blocked"), alice.clone(), bob.clone()).into_val(&env),
-                Map::<Symbol, Val>::from_array(
-                    &env,
-                    [(symbol_short!("amount"), 500i128.into_val(&env))]
-                )
-                .into_val(&env),
+                Map::<Symbol, Val>::from_array(&env, [(symbol_short!("amount"), 500i128.into_val(&env))])
+                    .into_val(&env),
             ),
         ]
     );
@@ -200,9 +268,53 @@ fn test_remove_from_allowlist_emits_allow_remove_event() {
             &env,
             (
                 contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+            (
+                contract_id.clone(),
                 (Symbol::new(&env, "allow_remove"), alice.clone()).into_val(&env),
                 Map::<Symbol, Val>::new(&env).into_val(&env),
             ),
         ]
     );
+}
+
+#[test]
+fn test_add_to_allowlist_twice_is_idempotent() {
+    let env = Env::default();
+    let (admin, _token_id, contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    assert!(!client.is_allowed(&alice));
+
+    // First call to add_to_allowlist
+    client.add_to_allowlist(&admin, &alice);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+    assert!(client.is_allowed(&alice));
+
+    // Second call to add_to_allowlist (idempotent call)
+    client.add_to_allowlist(&admin, &alice);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "allow_add"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::new(&env).into_val(&env),
+            ),
+        ]
+    );
+    assert!(client.is_allowed(&alice));
 }

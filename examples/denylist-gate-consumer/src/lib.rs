@@ -56,16 +56,11 @@ impl ExampleToken {
     /// Test/demo helper to fund an address with an initial balance.
     pub fn mint(env: Env, to: Address, amount: i128) {
         let balance = Self::balance(env.clone(), to.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(to), &(balance + amount));
+        env.storage().persistent().set(&DataKey::Balance(to), &(balance + amount));
     }
 
     pub fn balance(env: Env, address: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Balance(address))
-            .unwrap_or(0)
+        env.storage().persistent().get(&DataKey::Balance(address)).unwrap_or(0)
     }
 
     /// Transfer `amount` from `from` to `to`, gated by `denylist-gate`.
@@ -75,11 +70,7 @@ impl ExampleToken {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<(), Error> {
         from.require_auth();
 
-        let gate_address: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Gate)
-            .ok_or(Error::NotInitialized)?;
+        let gate_address: Address = env.storage().instance().get(&DataKey::Gate).ok_or(Error::NotInitialized)?;
         let gate = GateClient::new(&env, &gate_address);
 
         if !gate.check(&from) || !gate.check(&to) {
@@ -92,12 +83,8 @@ impl ExampleToken {
         }
         let to_balance = Self::balance(env.clone(), to.clone());
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(from.clone()), &(from_balance - amount));
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(to.clone()), &(to_balance + amount));
+        env.storage().persistent().set(&DataKey::Balance(from.clone()), &(from_balance - amount));
+        env.storage().persistent().set(&DataKey::Balance(to.clone()), &(to_balance + amount));
         Ok(())
     }
 }

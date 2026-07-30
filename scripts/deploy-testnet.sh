@@ -3,15 +3,20 @@
 # the resulting contract ID.
 #
 # Usage:
-#   scripts/deploy-testnet.sh <allowlist-token|denylist-gate|jurisdiction-flag>
+#   scripts/deploy-testnet.sh <allowlist-token|denylist-gate|jurisdiction-flag|rwa-token>
+#
+# For the full RWA stack (all three primitives + rwa-token + initialize),
+# prefer scripts/deploy-rwa-testnet.sh instead.
 #
 # The source testnet identity is read from $STELLAR_SOURCE (an identity
 # already set up via `stellar keys generate`/`stellar keys address`),
 # defaulting to "default" if unset.
+#
+# Requires stellar-cli compatible with soroban-sdk 27 (cli ≥ 23 / ideally 27.x).
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 <allowlist-token|denylist-gate|jurisdiction-flag>" >&2
+  echo "Usage: $0 <allowlist-token|denylist-gate|jurisdiction-flag|rwa-token>" >&2
   exit 1
 }
 
@@ -22,7 +27,7 @@ fi
 CONTRACT_NAME="$1"
 
 case "$CONTRACT_NAME" in
-  allowlist-token | denylist-gate | jurisdiction-flag) ;;
+  allowlist-token | denylist-gate | jurisdiction-flag | rwa-token) ;;
   *)
     echo "error: unknown contract '$CONTRACT_NAME'" >&2
     usage

@@ -6,6 +6,7 @@ members = [
     "contracts/jurisdiction-flag",
     "contracts/pausable",
     "examples/denylist-gate-consumer",
+    "examples/rwa-token",
 ]
 
 [workspace.package]

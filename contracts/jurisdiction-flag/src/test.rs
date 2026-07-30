@@ -47,11 +47,7 @@ fn test_is_permitted_jurisdiction_true_when_code_in_list() {
     let code = String::from_str(&env, "US");
     client.set_jurisdiction(&issuer, &alice, &code);
 
-    let allowed = vec![
-        &env,
-        String::from_str(&env, "CA"),
-        String::from_str(&env, "US"),
-    ];
+    let allowed = vec![&env, String::from_str(&env, "CA"), String::from_str(&env, "US")];
     assert!(client.is_permitted_jurisdiction(&alice, &allowed));
 }
 
@@ -99,6 +95,32 @@ fn test_set_jurisdiction_fails_before_initialize() {
     let result = client.try_set_jurisdiction(&issuer, &alice, &code);
     assert_eq!(result, Err(Ok(Error::NotInitialized)));
     assert_eq!(env.events().all(), vec![&env]);
+}
+
+#[test]
+fn test_set_jurisdiction_emits_jurisdiction_set_event() {
+    let env = Env::default();
+    let (issuer, contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+
+    client.set_jurisdiction(&issuer, &alice, &code);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                (Symbol::new(&env, "jurisdiction_set"), alice.clone()).into_val(&env),
+                Map::<Symbol, Val>::from_array(
+                    &env,
+                    [(Symbol::new(&env, "code"), code.clone().into_val(&env))]
+                )
+                .into_val(&env),
+            ),
+        ]
+    );
 }
 
 #[test]

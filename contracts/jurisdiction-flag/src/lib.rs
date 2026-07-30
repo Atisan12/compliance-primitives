@@ -239,6 +239,15 @@ impl JurisdictionFlag {
         Ok(())
     }
 
+    /// Returns the jurisdiction code attached to `address`, or `default` if
+    /// none has been set. Convenience wrapper around `get_jurisdiction` for
+    /// callers that want to treat an unset address as belonging to a known
+    /// fallback jurisdiction (e.g. `"XX"` for unknown/unrestricted) without
+    /// having to unwrap an `Option` themselves.
+    pub fn get_jurisdiction_or(env: Env, address: Address, default: String) -> String {
+        Self::get_jurisdiction(env, address).unwrap_or(default)
+    }
+
     /// Returns `true` if `address` has a jurisdiction code set AND that code
     /// appears in `allowed_codes`. Meant to be called by other contracts
     /// that want to restrict activity to a set of permitted jurisdictions.

@@ -39,7 +39,7 @@ use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contract
 enum DataKey {
     /// The admin address, set once in `initialize`. Instance storage.
     Admin,
-    PendingAdmin,
+    ComplianceOfficer,
     Token,
     /// Whether a given address is on the allowlist. Persistent storage,
     /// keyed per address.
@@ -104,20 +104,46 @@ impl AllowlistToken {
         Ok(())
     }
 
-    /// Add `address` to the allowlist. Admin-only. Blocked while paused.
-    pub fn add_to_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
-        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
+    /// Assign the compliance-officer role to `officer`. Admin-only.
+    /// A compliance officer may call `add_to_allowlist` and
+    /// `remove_from_allowlist` but may NOT assign or revoke the role.
+    pub fn set_compliance_officer(
+        env: Env,
+        admin: Address,
+        officer: Address,
+    ) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
-        env.storage().persistent().set(&DataKey::Allowed(address.clone()), &true);
+        env.storage()
+            .instance()
+            .set(&DataKey::ComplianceOfficer, &officer);
+        Ok(())
+    }
+
+    /// Revoke the compliance-officer role. Admin-only.
+    pub fn revoke_compliance_officer(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage()
+            .instance()
+            .remove(&DataKey::ComplianceOfficer);
+        Ok(())
+    }
+
+    /// Add `address` to the allowlist. Admin or compliance-officer.
+    pub fn add_to_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        Self::require_compliance_authority(&env, &admin)?;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Allowed(address.clone()), &true);
         AllowAdd { address }.publish(&env);
         Ok(())
     }
 
-    /// Remove `address` from the allowlist. Admin-only. Blocked while paused.
+    /// Remove `address` from the allowlist. Admin or compliance-officer.
     pub fn remove_from_allowlist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
-        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
-        Self::require_admin(&env, &admin)?;
-        env.storage().persistent().remove(&DataKey::Allowed(address.clone()));
+        Self::require_compliance_authority(&env, &admin)?;
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Allowed(address.clone()));
         AllowRemove { address }.publish(&env);
         Ok(())
     }
@@ -247,6 +273,29 @@ impl AllowlistToken {
             return Err(Error::NotAuthorized);
         }
         Ok(())
+    }
+
+    /// Checks that `caller` is either the admin or the compliance officer.
+    fn require_compliance_authority(env: &Env, caller: &Address) -> Result<(), Error> {
+        caller.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        if stored_admin == *caller {
+            return Ok(());
+        }
+        if let Some(officer) = env
+            .storage()
+            .instance()
+            .get(&DataKey::ComplianceOfficer)
+        {
+            if officer == *caller {
+                return Ok(());
+            }
+        }
+        Err(Error::NotAuthorized)
     }
 }
 

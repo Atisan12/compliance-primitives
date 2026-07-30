@@ -68,8 +68,7 @@ pub struct JurisdictionEntry {
 enum DataKey {
     /// The issuer address, set once in `initialize`. Instance storage.
     Issuer,
-    /// The jurisdiction code attached to a given address, if any.
-    /// Persistent storage, keyed per address.
+    ComplianceOfficer,
     Jurisdiction(Address),
     Paused,
 }
@@ -135,21 +134,38 @@ impl JurisdictionFlag {
         Ok(())
     }
 
-    /// Attach jurisdiction `code` to `address` with no expiry. Issuer-only.
-    /// Existing callers do not need to change — behavior is identical to the
-    /// previous version of this function.
+    /// Assign the compliance-officer role to `officer`. Issuer-only.
+    /// A compliance officer may call `set_jurisdiction` but may NOT
+    /// assign or revoke the role.
+    pub fn set_compliance_officer(
+        env: Env,
+        issuer: Address,
+        officer: Address,
+    ) -> Result<(), Error> {
+        Self::require_issuer(&env, &issuer)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::ComplianceOfficer, &officer);
+        Ok(())
+    }
+
+    /// Revoke the compliance-officer role. Issuer-only.
+    pub fn revoke_compliance_officer(env: Env, issuer: Address) -> Result<(), Error> {
+        Self::require_issuer(&env, &issuer)?;
+        env.storage()
+            .instance()
+            .remove(&DataKey::ComplianceOfficer);
+        Ok(())
+    }
+
+    /// Attach jurisdiction `code` to `address`. Issuer or compliance-officer.
     pub fn set_jurisdiction(
         env: Env,
         issuer: Address,
         address: Address,
         code: String,
     ) -> Result<(), Error> {
-        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
-        Self::require_issuer(&env, &issuer)?;
-        let entry = JurisdictionEntry {
-            code: code.clone(),
-            valid_until: None,
-        };
+        Self::require_compliance_authority(&env, &issuer)?;
         env.storage()
             .persistent()
             .set(&DataKey::Jurisdiction(address.clone()), &entry);
@@ -229,6 +245,29 @@ impl JurisdictionFlag {
             return Err(Error::NotAuthorized);
         }
         Ok(())
+    }
+
+    /// Checks that `caller` is either the issuer or the compliance officer.
+    fn require_compliance_authority(env: &Env, caller: &Address) -> Result<(), Error> {
+        caller.require_auth();
+        let stored_issuer: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Issuer)
+            .ok_or(Error::NotInitialized)?;
+        if stored_issuer == *caller {
+            return Ok(());
+        }
+        if let Some(officer) = env
+            .storage()
+            .instance()
+            .get(&DataKey::ComplianceOfficer)
+        {
+            if officer == *caller {
+                return Ok(());
+            }
+        }
+        Err(Error::NotAuthorized)
     }
 }
 

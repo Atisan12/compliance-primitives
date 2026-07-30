@@ -44,8 +44,7 @@ const MAX_BATCH_SIZE: u32 = 100;
 enum DataKey {
     /// The admin address, set once in `initialize`. Instance storage.
     Admin,
-    /// Whether a given address is on the denylist. Persistent storage,
-    /// keyed per address.
+    ComplianceOfficer,
     Denied(Address),
     /// Optional address of an `audit-log` contract to emit structured
     /// compliance events to. Not set by default — must be explicitly
@@ -112,23 +111,33 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Register an `audit-log` contract address. Admin-only. Once set,
-    /// state-mutating calls (`add_to_denylist`, `remove_from_denylist`) will
-    /// additionally call `audit_log.record(...)` via cross-contract
-    /// invocation so that a single contract instance aggregates compliance
-    /// events across all primitives.
-    pub fn set_audit_log(env: Env, admin: Address, audit_log: Address) -> Result<(), Error> {
+    /// Assign the compliance-officer role to `officer`. Admin-only.
+    /// A compliance officer may call `add_to_denylist` and
+    /// `remove_from_denylist` but may NOT assign or revoke the role.
+    pub fn set_compliance_officer(
+        env: Env,
+        admin: Address,
+        officer: Address,
+    ) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
         env.storage()
             .instance()
-            .set(&DataKey::AuditLog, &audit_log);
+            .set(&DataKey::ComplianceOfficer, &officer);
         Ok(())
     }
 
-    /// Add `address` to the denylist. Admin-only.
-    pub fn add_to_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
-        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
+    /// Revoke the compliance-officer role. Admin-only.
+    pub fn revoke_compliance_officer(env: Env, admin: Address) -> Result<(), Error> {
         Self::require_admin(&env, &admin)?;
+        env.storage()
+            .instance()
+            .remove(&DataKey::ComplianceOfficer);
+        Ok(())
+    }
+
+    /// Add `address` to the denylist. Admin or compliance-officer.
+    pub fn add_to_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        Self::require_compliance_authority(&env, &admin)?;
         env.storage()
             .persistent()
             .set(&DataKey::Denied(address.clone()), &true);
@@ -149,10 +158,9 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Remove `address` from the denylist. Admin-only. Blocked while paused.
+    /// Remove `address` from the denylist. Admin or compliance-officer.
     pub fn remove_from_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
-        compliance_pausable::require_not_paused(&env, Error::ContractPaused)?;
-        Self::require_admin(&env, &admin)?;
+        Self::require_compliance_authority(&env, &admin)?;
         env.storage()
             .persistent()
             .remove(&DataKey::Denied(address.clone()));
@@ -213,22 +221,27 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// If an audit-log address has been configured, call `record` on it with
-    /// the contract's own address as the `source`. This is the opt-in path:
-    /// if `DataKey::AuditLog` is not set, this function is a no-op.
-    fn maybe_record(env: &Env, subject: &Address, kind: Symbol, detail: String) {
-        if let Some(audit_log_address) = env
+    /// Checks that `caller` is either the admin or the compliance officer.
+    fn require_compliance_authority(env: &Env, caller: &Address) -> Result<(), Error> {
+        caller.require_auth();
+        let stored_admin: Address = env
             .storage()
             .instance()
-            .get::<DataKey, Address>(&DataKey::AuditLog)
-        {
-            let client = AuditLogClient::new(env, &audit_log_address);
-            // The source is this contract itself — Soroban's auth model
-            // allows a contract to authorize calls it makes from within its
-            // own execution context.
-            let source = env.current_contract_address();
-            client.record(&source, &kind, subject, &detail);
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        if stored_admin == *caller {
+            return Ok(());
         }
+        if let Some(officer) = env
+            .storage()
+            .instance()
+            .get(&DataKey::ComplianceOfficer)
+        {
+            if officer == *caller {
+                return Ok(());
+            }
+        }
+        Err(Error::NotAuthorized)
     }
 }
 

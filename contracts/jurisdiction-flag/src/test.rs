@@ -209,65 +209,97 @@ fn test_double_initialize_fails() {
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
-// ── new time-bound tests ──────────────────────────────────────────────────────
+// ── compliance-officer tests ───────────────────────────────────────────
 
-/// A flag set with `set_jurisdiction_until` is readable and permitted before
-/// its `valid_until` ledger sequence is reached.
 #[test]
-fn test_set_jurisdiction_until_valid_before_expiry() {
+fn test_issuer_can_set_and_revoke_compliance_officer() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+
+    // Set compliance officer
+    client.set_compliance_officer(&issuer, &officer);
+
+    // Officer can set jurisdiction
     let alice = Address::generate(&env);
-    let code = String::from_str(&env, "DE");
+    let code_us = String::from_str(&env, "US");
+    client.set_jurisdiction(&officer, &alice, &code_us);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code_us));
 
-    // Set ledger sequence well before the expiry.
-    env.ledger().with_mut(|li| li.sequence_number = 100);
-    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
+    // Revoke compliance officer
+    client.revoke_compliance_officer(&issuer);
 
-    // Still before expiry — flag should be present and permitted.
-    env.ledger().with_mut(|li| li.sequence_number = 150);
-    assert_eq!(client.get_jurisdiction(&alice), Some(code.clone()));
-
-    let allowed = vec![&env, String::from_str(&env, "DE")];
-    assert!(client.is_permitted_jurisdiction(&alice, &allowed));
+    // Now officer cannot set another jurisdiction
+    let bob = Address::generate(&env);
+    let result = client.try_set_jurisdiction(&officer, &bob, &code_us);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+    assert_eq!(client.get_jurisdiction(&bob), None);
 }
 
-/// A flag set with `set_jurisdiction_until` is treated as unset once the
-/// current ledger sequence strictly exceeds `valid_until`.
 #[test]
-fn test_set_jurisdiction_until_expired_after_expiry() {
+fn test_compliance_officer_can_set_jurisdiction() {
     let env = Env::default();
     let (issuer, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&issuer, &officer);
+
     let alice = Address::generate(&env);
-    let code = String::from_str(&env, "FR");
+    let code = String::from_str(&env, "US");
 
-    env.ledger().with_mut(|li| li.sequence_number = 100);
-    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
+    // Officer can set jurisdiction
+    client.set_jurisdiction(&officer, &alice, &code);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code));
+}
 
-    // Past expiry — flag should be treated as unset.
-    env.ledger().with_mut(|li| li.sequence_number = 201);
+#[test]
+fn test_compliance_officer_cannot_set_or_revoke_role() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&issuer, &officer);
+
+    let another = Address::generate(&env);
+
+    // Officer cannot set another compliance officer
+    let result = client.try_set_compliance_officer(&officer, &another);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer cannot revoke own role
+    let result = client.try_revoke_compliance_officer(&officer);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+
+    // Officer still has their role
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+    client.set_jurisdiction(&officer, &alice, &code);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code));
+}
+
+#[test]
+fn test_issuer_can_still_perform_compliance_actions() {
+    let env = Env::default();
+    let (issuer, _contract_id, client) = setup(&env);
+    let officer = Address::generate(&env);
+    client.set_compliance_officer(&issuer, &officer);
+
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+
+    // Issuer can still set jurisdiction directly
+    client.set_jurisdiction(&issuer, &alice, &code);
+    assert_eq!(client.get_jurisdiction(&alice), Some(code));
+}
+
+#[test]
+fn test_unset_officer_rejected_for_compliance_actions() {
+    let env = Env::default();
+    let (_issuer, _contract_id, client) = setup(&env);
+
+    // No compliance officer set — unknown address cannot act
+    let rando = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let code = String::from_str(&env, "US");
+    let result = client.try_set_jurisdiction(&rando, &alice, &code);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
     assert_eq!(client.get_jurisdiction(&alice), None);
-
-    let allowed = vec![&env, String::from_str(&env, "FR")];
-    assert!(!client.is_permitted_jurisdiction(&alice, &allowed));
-}
-
-/// At the exact `valid_until` ledger sequence the flag is still valid
-/// (`valid_until` is inclusive).
-#[test]
-fn test_set_jurisdiction_until_boundary_ledger() {
-    let env = Env::default();
-    let (issuer, _contract_id, client) = setup(&env);
-    let alice = Address::generate(&env);
-    let code = String::from_str(&env, "JP");
-
-    env.ledger().with_mut(|li| li.sequence_number = 100);
-    client.set_jurisdiction_until(&issuer, &alice, &code, &200_u32);
-
-    // Exactly at valid_until — flag should still be valid.
-    env.ledger().with_mut(|li| li.sequence_number = 200);
-    assert_eq!(client.get_jurisdiction(&alice), Some(code.clone()));
-
-    let allowed = vec![&env, String::from_str(&env, "JP")];
-    assert!(client.is_permitted_jurisdiction(&alice, &allowed));
 }

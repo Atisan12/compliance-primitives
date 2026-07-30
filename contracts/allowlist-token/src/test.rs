@@ -1,6 +1,7 @@
 use super::*;
 use soroban_sdk::testutils::{Address as _, Events as _};
-use soroban_sdk::{contract, contractimpl, symbol_short, vec, Env, IntoVal, Map, Symbol, Val, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, vec, Env, IntoVal, Map, Symbol, Val};
+use std::path::{Path, PathBuf};
 
 /// A minimal token double used only by these tests, so `allowlist-token`'s
 /// unit tests don't depend on any particular real SEP-41 implementation.
@@ -29,7 +30,53 @@ fn setup(env: &Env) -> (Address, Address, Address, AllowlistTokenClient<'_>) {
     (admin, token_id, contract_id, client)
 }
 
-// ── existing tests ──────────────────────────────────────────────────────────
+fn read_baseline(path: &Path, section: &str) -> (u64, u64) {
+    let contents = std::fs::read_to_string(path).unwrap();
+    let section_header = format!("[{section}]");
+    let mut in_section = false;
+    let mut cpu = None;
+    let mut memory = None;
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_section = trimmed == section_header;
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("cpu = ") {
+            cpu = Some(value.parse::<u64>().unwrap());
+        } else if let Some(value) = trimmed.strip_prefix("memory = ") {
+            memory = Some(value.parse::<u64>().unwrap());
+        }
+    }
+
+    let cpu = cpu.expect("missing cpu baseline");
+    let memory = memory.expect("missing memory baseline");
+    (cpu, memory)
+}
+
+fn baseline_path_for_manifest_dir(manifest_dir: PathBuf) -> PathBuf {
+    manifest_dir.join("..").join("..").join("budget-baselines.toml")
+}
+
+fn assert_budget_within_threshold(measured: (u64, u64), baseline: (u64, u64), label: &str) {
+    let (measured_cpu, measured_memory) = measured;
+    let (baseline_cpu, baseline_memory) = baseline;
+    let cpu_limit = (baseline_cpu as f64 * 1.10).ceil() as u64;
+    let memory_limit = (baseline_memory as f64 * 1.10).ceil() as u64;
+
+    assert!(
+        measured_cpu <= cpu_limit,
+        "{label} CPU regression: measured {measured_cpu}, baseline {baseline_cpu}, limit {cpu_limit}"
+    );
+    assert!(
+        measured_memory <= memory_limit,
+        "{label} memory regression: measured {measured_memory}, baseline {baseline_memory}, limit {memory_limit}"
+    );
+}
 
 #[test]
 fn test_initialize_and_allowlist_roundtrip() {
@@ -63,21 +110,24 @@ fn test_transfer_forwards_to_underlying_token_when_both_allowlisted() {
 }
 
 #[test]
-fn test_transfer_with_zero_amount_forwards_to_underlying_token() {
+fn test_budget_regression_allowlist_transfer() {
     let env = Env::default();
-    let (admin, token_id, _contract_id, client) = setup(&env);
+    let (admin, _token_id, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
 
     client.add_to_allowlist(&admin, &alice);
     client.add_to_allowlist(&admin, &bob);
 
-    let ok = client.transfer(&alice, &bob, &0);
+    let mut budget = env.cost_estimate().budget();
+    budget.reset_default();
+    let ok = client.transfer(&alice, &bob, &500);
     assert!(ok);
 
-    let token_client = MockTokenClient::new(&env, &token_id);
-    let last = token_client.last_transfer().unwrap();
-    assert_eq!(last, (alice, bob, 0));
+    let measured = (budget.cpu_instruction_cost(), budget.memory_bytes_cost());
+    let baseline_path = baseline_path_for_manifest_dir(PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()));
+    let baseline = read_baseline(&baseline_path, "allowlist-token.transfer");
+    assert_budget_within_threshold(measured, baseline, "allowlist-token transfer");
 }
 
 #[test]

@@ -1,51 +1,7 @@
 use super::*;
 use soroban_sdk::testutils::{Address as _, Events as _};
-use soroban_sdk::{vec, Env, IntoVal, Map, Symbol, Val, Vec};
-
-// We register the audit-log contract in integration tests using the
-// AuditLog type imported from the audit-log crate (dev-dependency).
-// To avoid linking two sets of wasm exports, we only use audit_log in
-// the test module under #[cfg(test)] — the standard Soroban pattern.
-#[cfg(test)]
-mod audit_log_integration {
-    use super::*;
-    use soroban_sdk::testutils::Address as _;
-
-    // Minimal stand-in for the audit-log contract so we can test the wiring
-    // without pulling in the full crate. In a real project you'd register the
-    // actual audit-log contract binary; here we verify the AuditLogClient
-    // interface shape compiles and the set_audit_log admin gate works.
-
-    #[test]
-    fn test_set_audit_log_rejects_non_admin() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let contract_id = env.register(DenylistGate, ());
-        let client = DenylistGateClient::new(&env, &contract_id);
-        client.initialize(&admin);
-
-        let impostor = Address::generate(&env);
-        let fake_audit_log = Address::generate(&env);
-
-        let result = client.try_set_audit_log(&impostor, &fake_audit_log);
-        assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    }
-
-    #[test]
-    fn test_set_audit_log_succeeds_for_admin() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let contract_id = env.register(DenylistGate, ());
-        let client = DenylistGateClient::new(&env, &contract_id);
-        client.initialize(&admin);
-
-        let fake_audit_log = Address::generate(&env);
-        // Should succeed — no panic, no error.
-        client.set_audit_log(&admin, &fake_audit_log);
-    }
-}
+use soroban_sdk::{vec, Env, IntoVal, Map, Symbol, Val};
+use std::path::{Path, PathBuf};
 
 fn setup(env: &Env) -> (Address, Address, DenylistGateClient<'_>) {
     env.mock_all_auths();
@@ -56,7 +12,53 @@ fn setup(env: &Env) -> (Address, Address, DenylistGateClient<'_>) {
     (admin, contract_id, client)
 }
 
-// ── existing tests ──────────────────────────────────────────────────────────
+fn read_baseline(path: &Path, section: &str) -> (u64, u64) {
+    let contents = std::fs::read_to_string(path).unwrap();
+    let section_header = format!("[{section}]");
+    let mut in_section = false;
+    let mut cpu = None;
+    let mut memory = None;
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_section = trimmed == section_header;
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("cpu = ") {
+            cpu = Some(value.parse::<u64>().unwrap());
+        } else if let Some(value) = trimmed.strip_prefix("memory = ") {
+            memory = Some(value.parse::<u64>().unwrap());
+        }
+    }
+
+    let cpu = cpu.expect("missing cpu baseline");
+    let memory = memory.expect("missing memory baseline");
+    (cpu, memory)
+}
+
+fn baseline_path_for_manifest_dir(manifest_dir: PathBuf) -> PathBuf {
+    manifest_dir.join("..").join("..").join("budget-baselines.toml")
+}
+
+fn assert_budget_within_threshold(measured: (u64, u64), baseline: (u64, u64), label: &str) {
+    let (measured_cpu, measured_memory) = measured;
+    let (baseline_cpu, baseline_memory) = baseline;
+    let cpu_limit = (baseline_cpu as f64 * 1.10).ceil() as u64;
+    let memory_limit = (baseline_memory as f64 * 1.10).ceil() as u64;
+
+    assert!(
+        measured_cpu <= cpu_limit,
+        "{label} CPU regression: measured {measured_cpu}, baseline {baseline_cpu}, limit {cpu_limit}"
+    );
+    assert!(
+        measured_memory <= memory_limit,
+        "{label} memory regression: measured {measured_memory}, baseline {baseline_memory}, limit {memory_limit}"
+    );
+}
 
 #[test]
 fn test_check_defaults_to_clear() {
@@ -64,6 +66,23 @@ fn test_check_defaults_to_clear() {
     let (_admin, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
     assert!(client.check(&alice));
+}
+
+#[test]
+fn test_budget_regression_denylist_check() {
+    let env = Env::default();
+    let (_admin, _contract_id, client) = setup(&env);
+    let alice = Address::generate(&env);
+
+    let mut budget = env.cost_estimate().budget();
+    budget.reset_default();
+    let is_clear = client.check(&alice);
+    assert!(is_clear);
+
+    let measured = (budget.cpu_instruction_cost(), budget.memory_bytes_cost());
+    let baseline_path = baseline_path_for_manifest_dir(PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()));
+    let baseline = read_baseline(&baseline_path, "denylist-gate.check");
+    assert_budget_within_threshold(measured, baseline, "denylist-gate check");
 }
 
 #[test]

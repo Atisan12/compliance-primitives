@@ -256,11 +256,7 @@ impl JurisdictionFlag {
 
     fn require_issuer(env: &Env, issuer: &Address) -> Result<(), Error> {
         issuer.require_auth();
-        let stored_issuer: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Issuer)
-            .ok_or(Error::NotInitialized)?;
+        let stored_issuer: Address = env.storage().instance().get(&DataKey::Issuer).ok_or(Error::NotInitialized)?;
         if stored_issuer != *issuer {
             return Err(Error::NotAuthorized);
         }

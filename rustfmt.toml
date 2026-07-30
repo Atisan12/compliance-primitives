@@ -1,0 +1,52 @@
+# rustfmt.toml — workspace-wide formatting configuration
+# Rustfmt 1.8.0-stable, Rust 1.91.0 (see rust-toolchain.toml).
+#
+# Only stable options are set here; rustfmt silently ignores unstable options
+# on a stable toolchain, which would cause `cargo fmt --check` to produce a
+# spurious diff on CI.  Any option that requires `unstable_features = true` is
+# noted as a comment so it can be re-enabled if the project ever switches to a
+# nightly-pinned toolchain.
+#
+# Non-default choices are explained inline.
+
+# --- Line width ---------------------------------------------------------------
+# The longest pre-existing line in the codebase is 113 chars (a `use
+# soroban_sdk::{…}` import in jurisdiction-flag/src/lib.rs).  120 keeps all
+# current lines within budget and gives a reasonable ceiling going forward.
+# (Default: 100)
+max_width = 120
+
+# Propagate max_width through all width heuristics (fn_call_width,
+# struct_lit_width, etc.) proportionally rather than keeping their absolute
+# defaults, which were calibrated for max_width = 100.
+# (Default: "Default")
+use_small_heuristics = "Max"
+
+# --- Indentation --------------------------------------------------------------
+# Matches the 4-space style used in every source file.  Listed explicitly so
+# a future `.editorconfig` or contributor can't silently override it.
+tab_spaces = 4    # Default: 4
+hard_tabs = false  # Default: false
+
+# --- Edition ------------------------------------------------------------------
+# Workspace Cargo.toml declares edition = "2021".
+edition = "2021"
+
+# --- Import ordering ----------------------------------------------------------
+# Keep rustfmt's default reorder_imports = true so `use` lists within a block
+# stay alphabetically sorted, but do not merge or split items across modules —
+# that behaviour (imports_granularity / group_imports) is unstable on stable.
+reorder_imports = true  # Default: true
+
+# --- Trailing commas ----------------------------------------------------------
+# "Vertical": trailing comma only when items are already formatted vertically.
+# This is the stable default and matches what the existing code does.
+# To enforce "Always" (trailing comma even on single-line tuples/args), set:
+#   trailing_comma = "Always"   # requires unstable_features = true
+
+# --- Nightly-only options (not active, documented for future reference) -------
+# imports_granularity = "Preserve"   # keep existing import grouping as-is
+# group_imports       = "Preserve"   # don't reorder import groups
+# trailing_comma      = "Always"     # always emit trailing commas
+# blank_lines_upper_bound = 1        # collapse double blank lines
+# brace_style         = "SameLineWhere"  # opening brace always same line

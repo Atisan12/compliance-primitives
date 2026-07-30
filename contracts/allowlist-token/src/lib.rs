@@ -21,7 +21,9 @@
 //! own token contract.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env,
+};
 
 #[contracttype]
 #[derive(Clone)]
@@ -161,8 +163,7 @@ impl AllowlistToken {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<bool, Error> {
         from.require_auth();
 
-        if Self::is_paused(env.clone())
-            || !Self::is_allowed(env.clone(), from.clone())
+        if !Self::is_allowed(env.clone(), from.clone())
             || !Self::is_allowed(env.clone(), to.clone())
         {
             Blocked { from, to, amount }.publish(&env);

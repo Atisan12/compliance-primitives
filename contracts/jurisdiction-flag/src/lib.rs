@@ -37,7 +37,9 @@
 //! uses — rather than deployed standalone.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec,
+};
 
 #[contracttype]
 #[derive(Clone)]
@@ -198,27 +200,23 @@ impl JurisdictionFlag {
     /// Kept for backward compatibility with single-code callers; prefer
     /// `list_jurisdictions` when multiple codes may be present.
     pub fn get_jurisdiction(env: Env, address: Address) -> Option<String> {
-        let codes = Self::list_jurisdictions(env, address);
-        if codes.is_empty() {
-            None
-        } else {
-            Some(codes.get(0).unwrap())
-        }
+        env.storage()
+            .persistent()
+            .get(&DataKey::Jurisdiction(address))
     }
 
     /// Returns `true` if *any* of `address`'s jurisdiction codes appear in
     /// `allowed_codes` ("any" semantics, not "all"). An address with no
     /// codes set is never permitted. Meant to be called by other contracts
     /// that want to restrict activity to a set of permitted jurisdictions.
-    pub fn is_permitted_jurisdiction(env: Env, address: Address, allowed_codes: Vec<String>) -> bool {
-        let codes = Self::list_jurisdictions(env, address);
-        if codes.is_empty() {
-            return false;
-        }
-        for code in codes.iter() {
-            if allowed_codes.iter().any(|c| c == code) {
-                return true;
-            }
+    pub fn is_permitted_jurisdiction(
+        env: Env,
+        address: Address,
+        allowed_codes: Vec<String>,
+    ) -> bool {
+        match Self::get_jurisdiction(env, address) {
+            Some(code) => allowed_codes.iter().any(|c| c == code),
+            None => false,
         }
         false
     }

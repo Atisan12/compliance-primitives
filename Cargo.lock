@@ -293,6 +293,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compliance-aggregator"
+version = "0.1.0"
+dependencies = [
+ "denylist-gate",
+ "jurisdiction-flag",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

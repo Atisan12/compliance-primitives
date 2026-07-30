@@ -19,12 +19,39 @@ contribution are also tagged `good first issue`.
    won't be merged.
 5. **Before submitting a PR, run:**
    ```sh
-   cargo test --workspace
-   cargo clippy --workspace --all-targets -- -D warnings
+   make test
+   make lint
    ```
-   Both must pass locally — the same checks run in CI on every PR.
+   (equivalent to `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`,
+   and `cargo fmt --all -- --check`). Both must pass locally — the same test and clippy checks run
+   in CI on every PR. `make build` runs the same wasm build CI checks. See the
+   [Makefile](./Makefile) for the full list of targets.
 6. **Open a pull request** against `main`, referencing the issue it closes
    (e.g. `Closes #12`). Describe what changed and why.
+
+## Complexity labels and expected PR size
+
+The complexity label on an issue is also a signal for how big the resulting
+PR should be. Before you start, gut-check your planned change against the
+issue's label:
+
+- **`complexity: trivial`** — typically a single file, or a small
+  documentation/test addition. No new public API surface. Example: adding an
+  issue template, or a single focused unit test like the one requested in
+  this same batch (`check()` returns true immediately after
+  `remove_from_denylist`).
+- **`complexity: medium`** — typically adds one new public function, or a
+  new test category, to a single contract. Example: adding a `get_admin()`
+  view function to `allowlist-token`, including happy-path and
+  not-initialized test coverage.
+- **`complexity: high`** — typically involves a design or threat-model
+  writeup, changes that span multiple contracts, or new tooling/CI. Example:
+  introducing a new cross-contract composition pattern or a new primitive
+  crate.
+
+If your planned PR looks a lot bigger (or smaller) than the label suggests,
+that's worth flagging in the issue before you start — the label may be
+wrong, or the issue may need to be split.
 
 ## Picking up an issue
 

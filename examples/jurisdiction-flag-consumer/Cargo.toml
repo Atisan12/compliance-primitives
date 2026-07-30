@@ -1,0 +1,22 @@
+[package]
+name = "jurisdiction-flag-consumer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Example token contract that calls jurisdiction-flag.is_permitted_jurisdiction before transferring."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+jurisdiction-flag = { path = "../../contracts/jurisdiction-flag", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]

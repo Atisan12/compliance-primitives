@@ -63,6 +63,12 @@ pub struct JurisdictionEntry {
     pub valid_until: Option<u32>,
 }
 
+/// Extend persistent jurisdiction entries when TTL drops below this many ledgers.
+const TTL_THRESHOLD: u32 = 1_000;
+/// Target TTL (in ledgers) after extension. Matches Stellar archival guidance
+/// for long-lived compliance flags that must remain queryable.
+const TTL_EXTEND_TO: u32 = 5_000;
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -188,19 +194,10 @@ impl JurisdictionFlag {
         valid_until: u32,
     ) -> Result<(), Error> {
         Self::require_issuer(&env, &issuer)?;
-        let entry = JurisdictionEntry {
-            code: code.clone(),
-            valid_until: Some(valid_until),
-        };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Jurisdiction(address.clone()), &entry);
-        JurisdictionSet {
-            address,
-            code,
-            valid_until: Some(valid_until),
-        }
-        .publish(&env);
+        let key = DataKey::Jurisdiction(address.clone());
+        env.storage().persistent().set(&key, &code);
+        Self::extend_jurisdiction_ttl(&env, &key);
+        JurisdictionSet { address, code }.publish(&env);
         Ok(())
     }
 
@@ -211,20 +208,12 @@ impl JurisdictionFlag {
     /// - the flag has a `valid_until` that is strictly less than the current
     ///   ledger sequence (i.e. the flag has expired).
     pub fn get_jurisdiction(env: Env, address: Address) -> Option<String> {
-        let entry: JurisdictionEntry = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Jurisdiction(address.clone()))?;
-
-        if let Some(valid_until) = entry.valid_until {
-            if env.ledger().sequence() > valid_until {
-                // Flag has expired — treat as unset.
-                JurisdictionExpired { address }.publish(&env);
-                return None;
-            }
+        let key = DataKey::Jurisdiction(address);
+        let code = env.storage().persistent().get(&key);
+        if code.is_some() {
+            Self::extend_jurisdiction_ttl(&env, &key);
         }
-
-        Some(entry.code)
+        code
     }
 
     /// Returns `true` if `address` has a non-expired jurisdiction code set
@@ -268,6 +257,12 @@ impl JurisdictionFlag {
             }
         }
         Err(Error::NotAuthorized)
+    }
+
+    fn extend_jurisdiction_ttl(env: &Env, key: &DataKey) {
+        env.storage()
+            .persistent()
+            .extend_ttl(key, TTL_THRESHOLD, TTL_EXTEND_TO);
     }
 }
 

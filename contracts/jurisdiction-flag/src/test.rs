@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::testutils::{storage::Persistent as _, Address as _, Events as _, Ledger as _};
 use soroban_sdk::{vec, Env};
 use std::path::{Path, PathBuf};
 
@@ -209,97 +209,48 @@ fn test_double_initialize_fails() {
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
-// ── compliance-officer tests ───────────────────────────────────────────
-
 #[test]
-fn test_issuer_can_set_and_revoke_compliance_officer() {
+fn test_set_jurisdiction_extends_persistent_ttl() {
     let env = Env::default();
-    let (issuer, _contract_id, client) = setup(&env);
-    let officer = Address::generate(&env);
-
-    // Set compliance officer
-    client.set_compliance_officer(&issuer, &officer);
-
-    // Officer can set jurisdiction
-    let alice = Address::generate(&env);
-    let code_us = String::from_str(&env, "US");
-    client.set_jurisdiction(&officer, &alice, &code_us);
-    assert_eq!(client.get_jurisdiction(&alice), Some(code_us));
-
-    // Revoke compliance officer
-    client.revoke_compliance_officer(&issuer);
-
-    // Now officer cannot set another jurisdiction
-    let bob = Address::generate(&env);
-    let result = client.try_set_jurisdiction(&officer, &bob, &code_us);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    assert_eq!(client.get_jurisdiction(&bob), None);
-}
-
-#[test]
-fn test_compliance_officer_can_set_jurisdiction() {
-    let env = Env::default();
-    let (issuer, _contract_id, client) = setup(&env);
-    let officer = Address::generate(&env);
-    client.set_compliance_officer(&issuer, &officer);
-
+    let (issuer, contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
     let code = String::from_str(&env, "US");
 
-    // Officer can set jurisdiction
-    client.set_jurisdiction(&officer, &alice, &code);
-    assert_eq!(client.get_jurisdiction(&alice), Some(code));
-}
-
-#[test]
-fn test_compliance_officer_cannot_set_or_revoke_role() {
-    let env = Env::default();
-    let (issuer, _contract_id, client) = setup(&env);
-    let officer = Address::generate(&env);
-    client.set_compliance_officer(&issuer, &officer);
-
-    let another = Address::generate(&env);
-
-    // Officer cannot set another compliance officer
-    let result = client.try_set_compliance_officer(&officer, &another);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-
-    // Officer cannot revoke own role
-    let result = client.try_revoke_compliance_officer(&officer);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-
-    // Officer still has their role
-    let alice = Address::generate(&env);
-    let code = String::from_str(&env, "US");
-    client.set_jurisdiction(&officer, &alice, &code);
-    assert_eq!(client.get_jurisdiction(&alice), Some(code));
-}
-
-#[test]
-fn test_issuer_can_still_perform_compliance_actions() {
-    let env = Env::default();
-    let (issuer, _contract_id, client) = setup(&env);
-    let officer = Address::generate(&env);
-    client.set_compliance_officer(&issuer, &officer);
-
-    let alice = Address::generate(&env);
-    let code = String::from_str(&env, "US");
-
-    // Issuer can still set jurisdiction directly
     client.set_jurisdiction(&issuer, &alice, &code);
+
+    let key = DataKey::Jurisdiction(alice.clone());
+
+    // Advance the ledger until the entry TTL drops below the extension threshold.
+    env.ledger().with_mut(|li| {
+        li.sequence_number += super::TTL_EXTEND_TO - super::TTL_THRESHOLD + 1;
+    });
+
+    let ttl_before_read = env.as_contract(&contract_id, || {
+        env.storage().persistent().get_ttl(&key)
+    });
+    assert!(ttl_before_read < super::TTL_THRESHOLD);
+
     assert_eq!(client.get_jurisdiction(&alice), Some(code));
-}
 
-#[test]
-fn test_unset_officer_rejected_for_compliance_actions() {
-    let env = Env::default();
-    let (_issuer, _contract_id, client) = setup(&env);
+    let ttl_after_read = env.as_contract(&contract_id, || {
+        env.storage().persistent().get_ttl(&key)
+    });
+    assert_eq!(ttl_after_read, super::TTL_EXTEND_TO);
 
-    // No compliance officer set — unknown address cannot act
-    let rando = Address::generate(&env);
-    let alice = Address::generate(&env);
-    let code = String::from_str(&env, "US");
-    let result = client.try_set_jurisdiction(&rando, &alice, &code);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    assert_eq!(client.get_jurisdiction(&alice), None);
+    env.ledger().with_mut(|li| {
+        li.sequence_number += super::TTL_EXTEND_TO - super::TTL_THRESHOLD + 1;
+    });
+
+    let ttl_before_rewrite = env.as_contract(&contract_id, || {
+        env.storage().persistent().get_ttl(&key)
+    });
+    assert!(ttl_before_rewrite < super::TTL_THRESHOLD);
+
+    let updated = String::from_str(&env, "CA");
+    client.set_jurisdiction(&issuer, &alice, &updated);
+
+    let ttl_after_write = env.as_contract(&contract_id, || {
+        env.storage().persistent().get_ttl(&key)
+    });
+    assert_eq!(ttl_after_write, super::TTL_EXTEND_TO);
 }

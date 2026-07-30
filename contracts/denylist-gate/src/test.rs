@@ -267,83 +267,40 @@ fn test_double_initialize_fails() {
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
-// ── compliance-officer tests ───────────────────────────────────────────
-
 #[test]
-fn test_admin_can_set_and_revoke_compliance_officer() {
+fn test_pause_blocks_add_and_remove() {
     let env = Env::default();
     let (admin, _contract_id, client) = setup(&env);
-    let officer = Address::generate(&env);
-
-    // Set compliance officer
-    client.set_compliance_officer(&admin, &officer);
-
-    // Officer can add to denylist
-    let alice = Address::generate(&env);
-    client.add_to_denylist(&officer, &alice);
-    assert!(!client.check(&alice));
-
-    // Revoke compliance officer
-    client.revoke_compliance_officer(&admin);
-
-    // Now officer cannot add another address
-    let bob = Address::generate(&env);
-    let result = client.try_add_to_denylist(&officer, &bob);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    assert!(client.check(&bob));
-}
-
-#[test]
-fn test_compliance_officer_can_add_and_remove() {
-    let env = Env::default();
-    let (admin, _contract_id, client) = setup(&env);
-    let officer = Address::generate(&env);
-    client.set_compliance_officer(&admin, &officer);
-
     let alice = Address::generate(&env);
 
-    // Officer can add
-    client.add_to_denylist(&officer, &alice);
-    assert!(!client.check(&alice));
-
-    // Officer can remove
-    client.remove_from_denylist(&officer, &alice);
+    client.pause(&admin);
+    assert_eq!(
+        client.try_add_to_denylist(&admin, &alice),
+        Err(Ok(Error::Paused))
+    );
     assert!(client.check(&alice));
-}
 
-#[test]
-fn test_compliance_officer_cannot_set_or_revoke_role() {
-    let env = Env::default();
-    let (admin, _contract_id, client) = setup(&env);
-    let officer = Address::generate(&env);
-    client.set_compliance_officer(&admin, &officer);
+    client.unpause(&admin);
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
 
-    let another = Address::generate(&env);
-
-    // Officer cannot set another compliance officer
-    let result = client.try_set_compliance_officer(&officer, &another);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-
-    // Officer cannot revoke own role
-    let result = client.try_revoke_compliance_officer(&officer);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-
-    // Officer still has their role
-    let alice = Address::generate(&env);
-    client.add_to_denylist(&officer, &alice);
+    client.pause(&admin);
+    assert_eq!(
+        client.try_remove_from_denylist(&admin, &alice),
+        Err(Ok(Error::Paused))
+    );
     assert!(!client.check(&alice));
 }
 
 #[test]
-fn test_admin_can_still_perform_compliance_actions() {
+fn test_unpause_restores_add_and_remove() {
     let env = Env::default();
     let (admin, _contract_id, client) = setup(&env);
-    let officer = Address::generate(&env);
-    client.set_compliance_officer(&admin, &officer);
-
     let alice = Address::generate(&env);
 
-    // Admin can still add/remove directly
+    client.pause(&admin);
+    client.unpause(&admin);
+
     client.add_to_denylist(&admin, &alice);
     assert!(!client.check(&alice));
 
@@ -352,14 +309,82 @@ fn test_admin_can_still_perform_compliance_actions() {
 }
 
 #[test]
-fn test_unset_officer_rejected_for_compliance_actions() {
+fn test_check_unaffected_by_pause_state() {
     let env = Env::default();
-    let (_admin, _contract_id, client) = setup(&env);
-
-    // No compliance officer set — unknown address cannot act
-    let rando = Address::generate(&env);
+    let (admin, _contract_id, client) = setup(&env);
     let alice = Address::generate(&env);
-    let result = client.try_add_to_denylist(&rando, &alice);
-    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
-    assert!(client.check(&alice));
+    let bob = Address::generate(&env);
+
+    client.add_to_denylist(&admin, &alice);
+    assert!(!client.check(&alice));
+    assert!(client.check(&bob));
+
+    client.pause(&admin);
+    assert!(!client.check(&alice));
+    assert!(client.check(&bob));
+
+    client.unpause(&admin);
+    assert!(!client.check(&alice));
+    assert!(client.check(&bob));
+}
+
+#[test]
+fn test_non_admin_cannot_pause_or_unpause() {
+    let env = Env::default();
+    let (admin, _contract_id, client) = setup(&env);
+    let impostor = Address::generate(&env);
+
+    assert_eq!(client.try_pause(&impostor), Err(Ok(Error::NotAuthorized)));
+
+    client.pause(&admin);
+    assert_eq!(client.try_unpause(&impostor), Err(Ok(Error::NotAuthorized)));
+}
+
+#[test]
+fn test_pause_emits_event() {
+    let env = Env::default();
+    let (admin, contract_id, client) = setup(&env);
+
+    client.pause(&admin);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id,
+                (Symbol::new(&env, "gate_paused"),).into_val(&env),
+                Map::<Symbol, Val>::from_array(
+                    &env,
+                    [(Symbol::new(&env, "paused"), true.into_val(&env))],
+                )
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn test_unpause_emits_event() {
+    let env = Env::default();
+    let (admin, contract_id, client) = setup(&env);
+
+    client.pause(&admin);
+    client.unpause(&admin);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id,
+                (Symbol::new(&env, "gate_unpaused"),).into_val(&env),
+                Map::<Symbol, Val>::from_array(
+                    &env,
+                    [(Symbol::new(&env, "paused"), false.into_val(&env))],
+                )
+                .into_val(&env),
+            ),
+        ]
+    );
 }

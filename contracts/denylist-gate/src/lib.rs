@@ -44,7 +44,7 @@ const MAX_BATCH_SIZE: u32 = 100;
 enum DataKey {
     /// The admin address, set once in `initialize`. Instance storage.
     Admin,
-    ComplianceOfficer,
+    Paused,
     Denied(Address),
     /// Optional address of an `audit-log` contract to emit structured
     /// compliance events to. Not set by default — must be explicitly
@@ -68,9 +68,15 @@ pub struct DenyRemove {
     pub address: Address,
 }
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
+#[contractevent]
+pub struct GatePaused {
+    paused: bool,
+}
+
+#[contractevent]
+pub struct GateUnpaused {
+    paused: bool,
+}
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -79,7 +85,7 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     NotAuthorized = 3,
-    BatchTooLarge = 4,
+    Paused = 4,
 }
 
 // ---------------------------------------------------------------------------
@@ -111,14 +117,26 @@ impl DenylistGate {
         Ok(())
     }
 
-    /// Assign the compliance-officer role to `officer`. Admin-only.
-    /// A compliance officer may call `add_to_denylist` and
-    /// `remove_from_denylist` but may NOT assign or revoke the role.
-    pub fn set_compliance_officer(
-        env: Env,
-        admin: Address,
-        officer: Address,
-    ) -> Result<(), Error> {
+    /// Pause admin mutations (`add_to_denylist` / `remove_from_denylist`).
+    /// `check()` continues to work while paused. Admin-only.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &true);
+        GatePaused { paused: true }.publish(&env);
+        Ok(())
+    }
+
+    /// Resume admin mutations after a `pause`. Admin-only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &false);
+        GateUnpaused { paused: false }.publish(&env);
+        Ok(())
+    }
+
+    /// Add `address` to the denylist. Admin-only.
+    pub fn add_to_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
+        Self::reject_if_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -160,7 +178,8 @@ impl DenylistGate {
 
     /// Remove `address` from the denylist. Admin or compliance-officer.
     pub fn remove_from_denylist(env: Env, admin: Address, address: Address) -> Result<(), Error> {
-        Self::require_compliance_authority(&env, &admin)?;
+        Self::reject_if_paused(&env)?;
+        Self::require_admin(&env, &admin)?;
         env.storage()
             .persistent()
             .remove(&DataKey::Denied(address.clone()));
@@ -207,9 +226,16 @@ impl DenylistGate {
             .unwrap_or(false)
     }
 
-    /// Returns `true` if `address` is currently on the denylist.
-    pub fn is_denylisted(env: Env, address: Address) -> bool {
-        !Self::check(env, address)
+    fn reject_if_paused(env: &Env) -> Result<(), Error> {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            return Err(Error::Paused);
+        }
+        Ok(())
     }
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
@@ -247,3 +273,6 @@ impl DenylistGate {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod fuzz_test;
